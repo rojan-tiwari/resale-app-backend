@@ -1,0 +1,15 @@
+# Development profile (default). Convenience over strictness - never use in production.
+logging:
+  level:
+    com.resalemarket: DEBUG
+    org.springframework.security: INFO
+
+management:
+  endpoint:
+    health:
+      show-details: always
+
+springdoc:
+  swagger-ui:
+    operations-sorter: alpha
+    tags-sorter: alpha

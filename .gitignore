@@ -1,0 +1,14 @@
+target/
+.env
+HELP.md
+.mvn/wrapper/maven-wrapper.jar
+
+# IDEs
+.idea/
+*.iml
+.vscode/
+.project
+.classpath
+.settings/
+.factorypath
+.sts4-cache/

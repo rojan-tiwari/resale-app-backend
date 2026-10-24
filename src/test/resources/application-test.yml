@@ -1,0 +1,14 @@
+# Test profile. The datasource is supplied by Testcontainers (@ServiceConnection), which overrides these values;
+# the password only exists so the required ${DB_PASSWORD} placeholder in application.yml resolves without a .env file.
+spring:
+  datasource:
+    password: replaced-by-testcontainers
+
+app:
+  cors:
+    allowed-origins: http://localhost:4200
+
+logging:
+  level:
+    root: WARN
+    com.resalemarket: INFO
