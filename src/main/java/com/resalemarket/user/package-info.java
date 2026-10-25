@@ -1,5 +1,6 @@
 /**
- * <b>Users and profiles</b> (delivered in Phase 2).
+ * <b>Users and profiles</b> (Phase 2, in progress: account creation and the database-backed
+ * {@code UserDetailsService} are built).
  *
  * <p>Accounts, roles, the editable profile, and the public seller profile (which exposes only intentionally
  * public data; the phone number only when {@code show_phone} consent is set).
