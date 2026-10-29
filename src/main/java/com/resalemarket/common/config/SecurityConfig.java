@@ -5,14 +5,20 @@ import java.util.Map;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
+import org.springframework.security.authentication.AccountStatusUserDetailsChecker;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.ProviderManager;
+import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.DelegatingPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
@@ -27,11 +33,13 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
  *   <li>401 and 403 are returned as RFC 9457 problem documents.</li>
  * </ul>
  *
- * <p>Phase 2 adds the authentication endpoints (registration is in; login and the JWT bearer-token filter follow).
- * Accounts are looked up in the database by {@code DatabaseUserDetailsService} and passwords are checked with the
- * {@link #passwordEncoder() PasswordEncoder} below. CSRF protection is disabled because requests are authenticated
- * by an {@code Authorization} header, not by an ambient cookie; the refresh-token cookie (Phase 2) is scoped to the
- * refresh endpoint, SameSite-restricted and requires a JSON/custom-header request, so it cannot be abused cross-site.
+ * <p>Phase 2 adds the authentication endpoints. Accounts are looked up in the database by
+ * {@code DatabaseUserDetailsService} and passwords are checked with the {@link #passwordEncoder() PasswordEncoder}
+ * below. Protected endpoints are called with a JWT access token ({@code Authorization: Bearer ...}) that Spring
+ * Security's resource-server filter verifies (see {@link JwtConfig}). CSRF protection is disabled because requests are
+ * authenticated by that header, not by an ambient cookie; the refresh-token cookie is scoped to the auth endpoints,
+ * SameSite-restricted, and the two endpoints that read it require a custom {@code X-Requested-With} header, which a
+ * cross-site form or image request cannot add.
  */
 @Configuration
 @EnableWebSecurity
@@ -44,9 +52,16 @@ public class SecurityConfig {
         "/api/v1/locations/**",
     };
 
-    /** Anonymous callers may create an account; the other authentication endpoints are added as they are built. */
+    /**
+     * Anonymous callers may create an account and sign in. {@code refresh} and {@code logout} are public because they are
+     * authenticated by the refresh-token cookie, not by an access token: a person whose access token has just expired must
+     * still be able to restore the session or sign out.
+     */
     private static final String[] PUBLIC_POST_ENDPOINTS = {
         "/api/v1/auth/register",
+        "/api/v1/auth/login",
+        "/api/v1/auth/refresh",
+        "/api/v1/auth/logout",
     };
 
     /** Interactive API documentation; only reachable when springdoc is enabled (development). */
@@ -58,7 +73,8 @@ public class SecurityConfig {
     SecurityFilterChain apiSecurityFilterChain(
             HttpSecurity http,
             CorsConfigurationSource corsConfigurationSource,
-            RestSecurityErrorHandlers errorHandlers)
+            RestSecurityErrorHandlers errorHandlers,
+            JwtAuthenticationConverter jwtAuthenticationConverter)
             throws Exception {
         http
                 .csrf(AbstractHttpConfigurer::disable)
@@ -68,6 +84,11 @@ public class SecurityConfig {
                 .formLogin(AbstractHttpConfigurer::disable)
                 .logout(AbstractHttpConfigurer::disable)
                 .exceptionHandling(handling -> handling
+                        .authenticationEntryPoint(errorHandlers)
+                        .accessDeniedHandler(errorHandlers))
+                // An invalid, expired or tampered token is answered by the same problem+json handlers as a missing one.
+                .oauth2ResourceServer(oauth2 -> oauth2
+                        .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter))
                         .authenticationEntryPoint(errorHandlers)
                         .accessDeniedHandler(errorHandlers))
                 .authorizeHttpRequests(authorize -> authorize
@@ -90,6 +111,22 @@ public class SecurityConfig {
     @Bean
     PasswordEncoder passwordEncoder() {
         return new DelegatingPasswordEncoder("bcrypt", Map.of("bcrypt", new BCryptPasswordEncoder()));
+    }
+
+    /**
+     * Checks an e-mail address and password against the database for the login endpoint.
+     *
+     * <p>The suspended / locked checks run <em>after</em> the password has been verified (Spring's default runs them
+     * before). Otherwise the answer to a wrong password would differ between a suspended account and an unknown one, and
+     * anyone could find out which addresses have suspended accounts. A wrong password always looks the same.
+     */
+    @Bean
+    AuthenticationManager authenticationManager(UserDetailsService userDetailsService, PasswordEncoder passwordEncoder) {
+        DaoAuthenticationProvider provider = new DaoAuthenticationProvider(userDetailsService);
+        provider.setPasswordEncoder(passwordEncoder);
+        provider.setPreAuthenticationChecks(user -> { });
+        provider.setPostAuthenticationChecks(new AccountStatusUserDetailsChecker());
+        return new ProviderManager(provider);
     }
 
     @Bean

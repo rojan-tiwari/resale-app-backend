@@ -16,6 +16,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
+import org.springframework.security.authentication.AuthenticationServiceException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -43,7 +44,11 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     public ResponseEntity<ProblemDetail> handleApiException(ApiException ex) {
         log.debug("Request failed with {}: {}", ex.getCode(), ex.getMessage());
         ProblemDetail problem = ProblemDetails.of(ex.getStatus(), ex.getCode(), ex.getMessage());
-        return ResponseEntity.status(ex.getStatus()).body(problem);
+        ResponseEntity.BodyBuilder response = ResponseEntity.status(ex.getStatus());
+        if (ex.getStatus() == HttpStatus.UNAUTHORIZED) {
+            response.header(HttpHeaders.WWW_AUTHENTICATE, "Bearer");   // a 401 must say how to authenticate (RFC 9110)
+        }
+        return response.body(problem);
     }
 
     /** {@code @Valid @RequestBody} failures: one entry per invalid field in {@code errors}. */
@@ -106,6 +111,16 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(AuthenticationException.class)
     public ResponseEntity<ProblemDetail> handleAuthentication(AuthenticationException ex) {
         return unauthorized();
+    }
+
+    /**
+     * The authentication machinery itself failed (for example the database was unreachable while looking up an
+     * account). That is a server problem, not a wrong credential, so it must not be reported as 401.
+     */
+    @ExceptionHandler(AuthenticationServiceException.class)
+    public ResponseEntity<ProblemDetail> handleAuthenticationService(
+            AuthenticationServiceException ex, HttpServletRequest request) {
+        return handleUnexpected(ex, request);
     }
 
     /** Last line of defence: log everything, reveal nothing. */

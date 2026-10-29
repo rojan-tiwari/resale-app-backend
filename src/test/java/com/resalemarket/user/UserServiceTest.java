@@ -16,6 +16,7 @@ import com.resalemarket.user.entity.User;
 import com.resalemarket.user.entity.UserProfile;
 import com.resalemarket.user.entity.UserStatus;
 import java.util.Optional;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -102,5 +103,83 @@ class UserServiceTest {
         assertThatThrownBy(() -> service.createUser(new NewUser("ram@example.com", UserFixtures.HASH, "Ram", null)))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("V8");
+    }
+
+    // --- lookups for sign-in ------------------------------------------------------------------------------------
+
+    private User account(UUID id, UserStatus status, Role... roles) {
+        return UserFixtures.withIdAndStatus(UserFixtures.user("sita@example.com", roles), id, status);
+    }
+
+    @Test
+    void findsAnActiveAccountByEmailWithItsProfileAndSortedRoles() {
+        UUID id = UUID.randomUUID();
+        User user = account(id, UserStatus.ACTIVE, UserFixtures.role(Role.USER), UserFixtures.role(Role.ADMIN));
+        when(userRepository.findByEmail("sita@example.com")).thenReturn(Optional.of(user));
+        when(profileRepository.findById(id)).thenReturn(Optional.of(UserProfile.create(user, "Sita Sharma", "+9779812345678")));
+
+        Optional<UserResponse> found = service.findActiveByEmail("  SITA@Example.com ");
+
+        assertThat(found).isPresent();
+        assertThat(found.get().id()).isEqualTo(id);
+        assertThat(found.get().displayName()).isEqualTo("Sita Sharma");
+        assertThat(found.get().phone()).isEqualTo("+9779812345678");
+        assertThat(found.get().roles()).containsExactly("ROLE_ADMIN", "ROLE_USER");
+    }
+
+    @Test
+    void doesNotFindAnUnknownAccountByEmail() {
+        when(userRepository.findByEmail("nobody@example.com")).thenReturn(Optional.empty());
+
+        assertThat(service.findActiveByEmail("nobody@example.com")).isEmpty();
+    }
+
+    @Test
+    void doesNotFindASuspendedOrDeletedAccountByEmail() {
+        when(userRepository.findByEmail("sita@example.com"))
+                .thenReturn(Optional.of(account(UUID.randomUUID(), UserStatus.SUSPENDED)))
+                .thenReturn(Optional.of(account(UUID.randomUUID(), UserStatus.DELETED)));
+
+        assertThat(service.findActiveByEmail("sita@example.com")).isEmpty();
+        assertThat(service.findActiveByEmail("sita@example.com")).isEmpty();
+        verifyNoInteractions(profileRepository);
+    }
+
+    @Test
+    void findsAnActiveAccountById() {
+        UUID id = UUID.randomUUID();
+        User user = account(id, UserStatus.ACTIVE);
+        when(userRepository.findWithRolesById(id)).thenReturn(Optional.of(user));
+        when(profileRepository.findById(id)).thenReturn(Optional.of(UserProfile.create(user, "Sita", null)));
+
+        assertThat(service.findActiveById(id)).get().satisfies(response -> {
+            assertThat(response.email()).isEqualTo("sita@example.com");
+            assertThat(response.roles()).containsExactly("ROLE_USER");
+        });
+    }
+
+    @Test
+    void doesNotFindAnUnknownSuspendedOrDeletedAccountById() {
+        UUID unknown = UUID.randomUUID();
+        UUID suspended = UUID.randomUUID();
+        UUID deleted = UUID.randomUUID();
+        when(userRepository.findWithRolesById(unknown)).thenReturn(Optional.empty());
+        when(userRepository.findWithRolesById(suspended)).thenReturn(Optional.of(account(suspended, UserStatus.SUSPENDED)));
+        when(userRepository.findWithRolesById(deleted)).thenReturn(Optional.of(account(deleted, UserStatus.DELETED)));
+
+        assertThat(service.findActiveById(unknown)).isEmpty();
+        assertThat(service.findActiveById(suspended)).isEmpty();
+        assertThat(service.findActiveById(deleted)).isEmpty();
+    }
+
+    @Test
+    void anAccountWithoutAProfileIsADataErrorNotASilentGap() {
+        UUID id = UUID.randomUUID();
+        when(userRepository.findWithRolesById(id)).thenReturn(Optional.of(account(id, UserStatus.ACTIVE)));
+        when(profileRepository.findById(id)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.findActiveById(id))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("has no profile");
     }
 }

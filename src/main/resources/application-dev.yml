@@ -9,6 +9,11 @@ management:
     health:
       show-details: always
 
+app:
+  auth:
+    refresh-cookie:
+      secure: false              # the dev server is plain http://localhost, where a Secure cookie would not be kept by every browser
+
 springdoc:
   swagger-ui:
     operations-sorter: alpha

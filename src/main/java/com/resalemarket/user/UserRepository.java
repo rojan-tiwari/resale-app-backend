@@ -14,4 +14,7 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     /** Loads the roles in the same query: the authorities are read after the lookup, outside any lazy-loading session. */
     @EntityGraph(attributePaths = "roles")
     Optional<User> findByEmail(String email);
+
+    @EntityGraph(attributePaths = "roles")
+    Optional<User> findWithRolesById(UUID id);
 }

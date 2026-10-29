@@ -7,6 +7,10 @@ spring:
 app:
   cors:
     allowed-origins: http://localhost:4200
+  jwt:
+    secret: test-only-secret-that-is-never-used-outside-the-test-suite
+  auth:
+    refresh-reuse-grace: 0s      # every reuse of a rotated token counts as theft; the tab-race grace is covered by unit tests
 
 logging:
   level:
