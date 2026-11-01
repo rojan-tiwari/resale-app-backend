@@ -8,6 +8,7 @@ import com.resalemarket.common.exception.UnauthorizedException;
 import com.resalemarket.user.UserService;
 import com.resalemarket.user.dto.NewUser;
 import com.resalemarket.user.dto.UserResponse;
+import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -119,6 +120,15 @@ public class AuthService {
         if (refreshToken != null && !refreshToken.isBlank()) {
             refreshTokens.revoke(refreshToken);
         }
+    }
+
+    /**
+     * Ends every session of the user on every device, this one included. Used when a phone is lost, or someone is not
+     * sure who else is signed in. Access tokens that were already issued stay valid until they expire (at most 15 minutes).
+     */
+    public void logoutAll(UUID userId) {
+        int ended = refreshTokens.revokeAll(userId);
+        log.info("User {} signed out of all devices ({} session(s) ended)", userId, ended);
     }
 
     private AuthResponse authResponse(UserResponse user) {

@@ -3,17 +3,21 @@ package com.resalemarket.auth;
 import com.resalemarket.auth.dto.AuthResponse;
 import com.resalemarket.auth.dto.LoginRequest;
 import com.resalemarket.auth.dto.RegisterRequest;
+import com.resalemarket.common.config.OpenApiConfig;
 import com.resalemarket.user.dto.UserResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import java.util.UUID;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -97,6 +101,23 @@ public class AuthController {
                     String requestedWith,
             HttpServletRequest http) {
         authService.logout(refreshCookies.read(http));
+        return ResponseEntity.noContent()
+                .header(HttpHeaders.SET_COOKIE, refreshCookies.clear().toString())
+                .build();
+    }
+
+    @PostMapping("/logout-all")
+    @Operation(
+            summary = "Sign out of all devices",
+            description = "Needs an access token. Ends every session of the signed-in user on every device, this one included: "
+                    + "all of their refresh tokens are revoked and this browser's cookie is cleared. Access tokens that were already "
+                    + "issued stay valid until they expire (at most 15 minutes).",
+            security = @SecurityRequirement(name = OpenApiConfig.BEARER_AUTH))
+    @ApiResponse(responseCode = "204", description = "All sessions ended. Also the answer when there were none open")
+    @ApiResponse(responseCode = "401", description = "No access token, or it is expired or invalid (UNAUTHORIZED)")
+    public ResponseEntity<Void> logoutAll(Authentication authentication) {
+        // Deny-by-default security guarantees a verified access token here; its subject is the user's id.
+        authService.logoutAll(UUID.fromString(authentication.getName()));
         return ResponseEntity.noContent()
                 .header(HttpHeaders.SET_COOKIE, refreshCookies.clear().toString())
                 .build();

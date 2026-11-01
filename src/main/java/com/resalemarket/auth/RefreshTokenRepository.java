@@ -23,6 +23,13 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshToken, UUID
 
     boolean existsByFamilyIdAndRevokedAtIsNull(UUID familyId);
 
+    /** Revokes every token of one person that is still valid, on all of their devices; returns how many there were. */
+    @Modifying
+    @Query("update RefreshToken t set t.revokedAt = :now, t.revokedReason = :reason "
+            + "where t.userId = :userId and t.revokedAt is null")
+    int revokeActiveForUser(
+            @Param("userId") UUID userId, @Param("now") Instant now, @Param("reason") RevocationReason reason);
+
     /** Revokes every token of the family that is still valid; returns how many there were. */
     @Modifying
     @Query("update RefreshToken t set t.revokedAt = :now, t.revokedReason = :reason "

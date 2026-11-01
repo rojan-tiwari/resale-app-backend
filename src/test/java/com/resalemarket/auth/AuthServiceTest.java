@@ -234,6 +234,13 @@ class AuthServiceTest {
     }
 
     @Test
+    void logoutAllRevokesEverySessionOfTheUser() {
+        service.logoutAll(USER_ID);
+
+        verify(refreshTokens).revokeAll(USER_ID);
+    }
+
+    @Test
     void logoutWithoutATokenIsANoOp() {
         service.logout(null);
         service.logout(" ");
