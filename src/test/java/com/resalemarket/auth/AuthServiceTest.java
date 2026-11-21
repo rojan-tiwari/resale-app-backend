@@ -67,9 +67,10 @@ class AuthServiceTest {
                 Duration.ofDays(14),
                 Duration.ofSeconds(10),
                 new AuthProperties.RefreshCookie("refresh_token", true, "Strict", "/api/v1/auth"),
+                Duration.ofHours(1),
                 3,
                 Duration.ofMinutes(20),
-                new AuthProperties.RateLimits(null, null));
+                new AuthProperties.RateLimits(null, null, null, null, null));
         service = new AuthService(userService, passwordEncoder, authenticationManager, accessTokens, refreshTokens, properties);
     }
 

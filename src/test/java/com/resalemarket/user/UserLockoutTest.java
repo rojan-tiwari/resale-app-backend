@@ -88,4 +88,15 @@ class UserLockoutTest {
         assertThat(user.getLastLoginAt()).isEqualTo(NOW.plusSeconds(30));
     }
 
+    @Test
+    void replacingThePasswordLiftsALockAndClearsTheCount() {
+        user.registerFailedLogin(NOW, 1, LOCKOUT);
+        assertThat(user.isLockedAt(NOW)).isTrue();
+
+        user.replacePasswordHash("{bcrypt}new");
+
+        assertThat(user.getPasswordHash()).isEqualTo("{bcrypt}new");
+        assertThat(user.isLockedAt(NOW)).isFalse();
+        assertThat(user.getFailedLoginAttempts()).isZero();
+    }
 }

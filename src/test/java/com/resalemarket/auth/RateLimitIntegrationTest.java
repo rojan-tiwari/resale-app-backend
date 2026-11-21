@@ -35,6 +35,8 @@ import tools.jackson.databind.json.JsonMapper;
     "app.auth.rate-limits.login.window=10m",
     "app.auth.rate-limits.register.attempts=2",
     "app.auth.rate-limits.register.window=1h",
+    "app.auth.rate-limits.forgot-password-by-email.attempts=1",
+    "app.auth.rate-limits.forgot-password-by-email.window=1h",
 })
 class RateLimitIntegrationTest {
 
@@ -107,6 +109,14 @@ class RateLimitIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT count(*) FROM users WHERE email = ?", Integer.class, "third@" + DOMAIN)).isZero();
     }
 
+    @Test
+    void oneInboxCannotBeFloodedFromManyAddresses() throws Exception {
+        forgot("198.51.100.15", "victim@" + DOMAIN).andExpect(status().isAccepted());
+
+        forgot("198.51.100.16", "victim@" + DOMAIN).andExpect(status().isTooManyRequests());
+        forgot("198.51.100.16", "someone.else@" + DOMAIN).andExpect(status().isAccepted());
+    }
+
     // --- steps ------------------------------------------------------------------------------------------------------
 
     private static RequestPostProcessor from(String ip) {
@@ -130,6 +140,13 @@ class RateLimitIntegrationTest {
         body.put("password", PASSWORD);
         body.put("displayName", "Rate Limit");
         return mockMvc.perform(post("/api/v1/auth/register").with(from(ip))
+                .contentType(MediaType.APPLICATION_JSON).content(json.writeValueAsString(body)));
+    }
+
+    private ResultActions forgot(String ip, String email) throws Exception {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("email", email);
+        return mockMvc.perform(post("/api/v1/auth/forgot-password").with(from(ip))
                 .contentType(MediaType.APPLICATION_JSON).content(json.writeValueAsString(body)));
     }
 }

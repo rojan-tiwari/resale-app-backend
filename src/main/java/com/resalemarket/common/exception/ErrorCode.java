@@ -17,6 +17,8 @@ public enum ErrorCode {
     CONFLICT,
     CONCURRENT_MODIFICATION,
     BUSINESS_RULE_VIOLATION,
+    /** A single-use link token (e.g. password reset) is unknown, already used or expired; the client offers to request a new one. */
+    INVALID_TOKEN,
     TOO_MANY_REQUESTS,
     INTERNAL_ERROR;
 

@@ -22,11 +22,15 @@ class AuthRateLimitsTest {
                 Duration.ofDays(14),
                 Duration.ofSeconds(10),
                 new AuthProperties.RefreshCookie("refresh_token", true, "Strict", "/api/v1/auth"),
+                Duration.ofHours(1),
                 5,
                 Duration.ofMinutes(15),
                 new AuthProperties.RateLimits(
                         new RateLimit(2, WINDOW),    // login
-                        new RateLimit(2, WINDOW)));  // register
+                        new RateLimit(2, WINDOW),    // register
+                        new RateLimit(3, WINDOW),    // forgot password, per IP
+                        new RateLimit(1, WINDOW),    // forgot password, per e-mail
+                        new RateLimit(2, WINDOW)));  // reset password
     }
 
     private static ClientInfo from(String ip) {
@@ -48,14 +52,18 @@ class AuthRateLimitsTest {
         limits.login(from("203.0.113.7"));
 
         assertThatCode(() -> limits.register(from("203.0.113.7"))).doesNotThrowAnyException();
+        assertThatCode(() -> limits.resetPassword(from("203.0.113.7"))).doesNotThrowAnyException();
     }
 
     @Test
-    void registrationHasItsOwnLimit() {
+    void registrationAndResetUseTheirOwnLimits() {
         limits.register(from("203.0.113.7"));
         limits.register(from("203.0.113.7"));
+        limits.resetPassword(from("203.0.113.7"));
+        limits.resetPassword(from("203.0.113.7"));
 
         assertThatThrownBy(() -> limits.register(from("203.0.113.7"))).isInstanceOf(TooManyRequestsException.class);
+        assertThatThrownBy(() -> limits.resetPassword(from("203.0.113.7"))).isInstanceOf(TooManyRequestsException.class);
     }
 
     @Test
@@ -64,6 +72,32 @@ class AuthRateLimitsTest {
         limits.login(from(null));
 
         assertThatThrownBy(() -> limits.login(from(null))).isInstanceOf(TooManyRequestsException.class);
+    }
+
+    @Test
+    void oneInboxCannotBeFloodedFromManyAddresses() {
+        limits.forgotPassword(from("203.0.113.1"), "sita@example.com");
+
+        assertThatThrownBy(() -> limits.forgotPassword(from("203.0.113.2"), "sita@example.com"))
+                .isInstanceOf(TooManyRequestsException.class);
+    }
+
+    @Test
+    void theEmailAddressIsCountedInItsNormalisedForm() {
+        limits.forgotPassword(from("203.0.113.1"), "Sita@Example.com");
+
+        assertThatThrownBy(() -> limits.forgotPassword(from("203.0.113.2"), "  sita@example.COM "))
+                .isInstanceOf(TooManyRequestsException.class);
+    }
+
+    @Test
+    void oneAddressCannotAskForManyDifferentInboxesEither() {
+        limits.forgotPassword(from("203.0.113.1"), "a@example.com");
+        limits.forgotPassword(from("203.0.113.1"), "b@example.com");
+        limits.forgotPassword(from("203.0.113.1"), "c@example.com");
+
+        assertThatThrownBy(() -> limits.forgotPassword(from("203.0.113.1"), "d@example.com"))
+                .isInstanceOf(TooManyRequestsException.class);
     }
 
     @Test

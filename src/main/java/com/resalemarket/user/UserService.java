@@ -1,6 +1,7 @@
 package com.resalemarket.user;
 
 import com.resalemarket.common.exception.ConflictException;
+import com.resalemarket.common.exception.UnauthorizedException;
 import com.resalemarket.user.dto.NewUser;
 import com.resalemarket.user.dto.UserResponse;
 import com.resalemarket.user.entity.Role;
@@ -94,8 +95,24 @@ public class UserService {
         userRepository.findWithLockById(userId).ifPresent(user -> user.registerSuccessfulLogin(clock.instant()));
     }
 
+    /**
+     * Stores a new password hash (the caller hashed it; the plain password never reaches this module). Also lifts a lock-out,
+     * because whoever got here proved they own the account. Ending the sessions that used the old password is the caller's job.
+     *
+     * @throws UnauthorizedException if the account may no longer be used
+     */
+    @Transactional
+    public void replacePassword(UUID userId, String newPasswordHash) {
+        User user = userRepository.findWithLockById(userId).filter(UserService::isActive).orElseThrow(UserService::sessionEnded);
+        user.replacePasswordHash(newPasswordHash);
+    }
+
     private static boolean isActive(User user) {
         return user.getStatus() == UserStatus.ACTIVE;
+    }
+
+    private static UnauthorizedException sessionEnded() {
+        return new UnauthorizedException("Your session has expired. Please sign in again.");
     }
 
     private static IllegalStateException missingProfile(UUID userId) {

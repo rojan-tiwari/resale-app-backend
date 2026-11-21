@@ -15,6 +15,7 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  *                            (two browser tabs restoring the session at the same moment) instead of as theft; {@code 0s}
  *                            makes every reuse count as theft
  * @param refreshCookie       how the refresh token travels to the browser
+ * @param passwordResetTtl    how long the link in a password-reset e-mail works
  * @param maxFailedLogins     this many wrong passwords in a row lock the account
  * @param lockoutDuration     how long a locked account refuses to sign in (a reset of the password lifts the lock at once)
  * @param rateLimits          how often the public authentication endpoints may be called
@@ -24,6 +25,7 @@ public record AuthProperties(
         @DefaultValue("14d") Duration refreshTokenTtl,
         @DefaultValue("10s") Duration refreshReuseGrace,
         @DefaultValue RefreshCookie refreshCookie,
+        @DefaultValue("1h") Duration passwordResetTtl,
         @DefaultValue("5") int maxFailedLogins,
         @DefaultValue("15m") Duration lockoutDuration,
         @DefaultValue RateLimits rateLimits) {
@@ -34,6 +36,9 @@ public record AuthProperties(
         }
         if (refreshReuseGrace.isNegative()) {
             throw new IllegalArgumentException("app.auth.refresh-reuse-grace must not be negative.");
+        }
+        if (passwordResetTtl.isZero() || passwordResetTtl.isNegative()) {
+            throw new IllegalArgumentException("app.auth.password-reset-ttl must be positive.");
         }
         if (maxFailedLogins < 1) {
             throw new IllegalArgumentException("app.auth.max-failed-logins must be at least 1.");
@@ -63,14 +68,23 @@ public record AuthProperties(
      *
      * @param login                a person signing in, per IP address (the per-account guard is the lock-out)
      * @param register             creating accounts, per IP address
+     * @param forgotPasswordByIp   asking for reset e-mails, per IP address
+     * @param forgotPasswordByEmail reset e-mails to one address, so it cannot be mail-bombed from many IP addresses
+     * @param resetPassword        using reset links, per IP address
      */
     public record RateLimits(
             RateLimit login,
-            RateLimit register) {
+            RateLimit register,
+            RateLimit forgotPasswordByIp,
+            RateLimit forgotPasswordByEmail,
+            RateLimit resetPassword) {
 
         public RateLimits {
             login = login != null ? login : new RateLimit(20, Duration.ofMinutes(10));
             register = register != null ? register : new RateLimit(10, Duration.ofHours(1));
+            forgotPasswordByIp = forgotPasswordByIp != null ? forgotPasswordByIp : new RateLimit(10, Duration.ofHours(1));
+            forgotPasswordByEmail = forgotPasswordByEmail != null ? forgotPasswordByEmail : new RateLimit(3, Duration.ofHours(1));
+            resetPassword = resetPassword != null ? resetPassword : new RateLimit(10, Duration.ofHours(1));
         }
     }
 }

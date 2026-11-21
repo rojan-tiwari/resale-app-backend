@@ -2,14 +2,8 @@ package com.resalemarket.auth;
 
 import com.resalemarket.auth.entity.RefreshToken;
 import com.resalemarket.auth.entity.RevocationReason;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.Instant;
-import java.util.Base64;
-import java.util.HexFormat;
 import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -37,12 +31,9 @@ public class RefreshTokenService {
 
     private static final Logger log = LoggerFactory.getLogger(RefreshTokenService.class);
 
-    private static final int TOKEN_BYTES = 32;
-
     private final RefreshTokenRepository repository;
     private final AuthProperties properties;
     private final Clock clock;
-    private final SecureRandom random = new SecureRandom();
 
     public RefreshTokenService(RefreshTokenRepository repository, AuthProperties properties, Clock clock) {
         this.repository = repository;
@@ -114,7 +105,13 @@ public class RefreshTokenService {
      */
     @Transactional
     public int revokeAll(UUID userId) {
-        return repository.revokeActiveForUser(userId, clock.instant(), RevocationReason.LOGOUT);
+        return revokeAll(userId, RevocationReason.LOGOUT);
+    }
+
+    /** Like {@link #revokeAll(UUID)}, recording why (for example {@link RevocationReason#PASSWORD_CHANGED}). */
+    @Transactional
+    public int revokeAll(UUID userId, RevocationReason reason) {
+        return repository.revokeActiveForUser(userId, clock.instant(), reason);
     }
 
     /** A token that was already rotated came back: a harmless race if it is fresh, theft if it is not. */
@@ -146,19 +143,12 @@ public class RefreshTokenService {
     }
 
     private String newRawToken() {
-        byte[] bytes = new byte[TOKEN_BYTES];
-        random.nextBytes(bytes);
-        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+        return OpaqueTokens.newToken();
     }
 
     /** SHA-256 as lower-case hex: 64 characters, the width of {@code refresh_tokens.token_hash}. */
     static String hash(String rawToken) {
-        try {
-            byte[] digest = MessageDigest.getInstance("SHA-256").digest(rawToken.getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(digest);
-        } catch (NoSuchAlgorithmException ex) {
-            throw new IllegalStateException("SHA-256 is required by every Java runtime.", ex);
-        }
+        return OpaqueTokens.sha256Hex(rawToken);
     }
 
     private record Saved(RefreshToken token, String rawToken) {

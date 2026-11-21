@@ -58,6 +58,11 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
         </dependency>
+        <!-- Outgoing e-mail (password reset). Used only when app.mail.transport=smtp; the dev default logs the message instead. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-mail</artifactId>
+        </dependency>
         <!-- Rate limiting: a bounded, self-expiring map of attempt counters (version managed by the Spring Boot BOM). -->
         <dependency>
             <groupId>com.github.ben-manes.caffeine</groupId>
