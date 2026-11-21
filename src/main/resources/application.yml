@@ -50,6 +50,18 @@ spring:
         default-page-size: 20
         max-page-size: 100       # clients cannot request huge pages
 
+  mail:
+    # Only used when app.mail.transport=smtp (see below). Defaults point at Mailpit, the local mail catcher in docker-compose.yml.
+    host: ${MAIL_HOST:localhost}
+    port: ${MAIL_PORT:1025}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      # Never let a slow mail server hold a worker thread forever (milliseconds).
+      "[mail.smtp.connectiontimeout]": 5000
+      "[mail.smtp.timeout]": 10000
+      "[mail.smtp.writetimeout]": 10000
+
   servlet:
     multipart:
       max-file-size: 5MB         # per-image limit (Phase 3 also validates the real content type)
@@ -72,8 +84,19 @@ management:
     health:
       probes:
         enabled: true            # /actuator/health/liveness and /readiness
+  health:
+    mail:
+      enabled: false             # an unreachable mail server must not take the API out of the load balancer
 
 app:
+  frontend:
+    # Where the web app lives. Goes into e-mailed links (the password-reset link opens a page of the web app).
+    url: ${FRONTEND_URL:http://localhost:4200}
+  mail:
+    # `log` prints each message to the application log instead of sending it: for development only, because the log would
+    # then hold working password-reset links. `smtp` sends through spring.mail.*; the prod profile fixes it to smtp.
+    transport: ${MAIL_TRANSPORT:log}
+    from: ${MAIL_FROM:ResaleMarket <no-reply@resalemarket.local>}
   cors:
     # Comma-separated list of exact origins allowed to call the API from a browser.
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:4200}
@@ -88,3 +111,8 @@ app:
     refresh-cookie:
       secure: true               # HTTPS only; the dev profile turns this off for http://localhost
       same-site: Strict
+    password-reset-ttl: 1h       # how long the link in a password-reset e-mail works (it also works only once)
+    max-failed-logins: 5         # this many wrong passwords in a row lock the account ...
+    lockout-duration: 15m        # ... for this long (resetting the password lifts the lock at once)
+    # Rate limits of the public auth endpoints are `app.auth.rate-limits.<rule>.attempts` / `.window`, rules: login, register,
+    # forgot-password-by-ip, forgot-password-by-email, reset-password, change-password. The defaults are in AuthProperties.

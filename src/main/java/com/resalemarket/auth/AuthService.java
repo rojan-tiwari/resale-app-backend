@@ -1,8 +1,11 @@
 package com.resalemarket.auth;
 
 import com.resalemarket.auth.dto.AuthResponse;
+import com.resalemarket.auth.dto.ChangePasswordRequest;
 import com.resalemarket.auth.dto.LoginRequest;
 import com.resalemarket.auth.dto.RegisterRequest;
+import com.resalemarket.auth.entity.RevocationReason;
+import com.resalemarket.common.exception.FieldValidationException;
 import com.resalemarket.common.exception.ForbiddenException;
 import com.resalemarket.common.exception.UnauthorizedException;
 import com.resalemarket.user.UserService;
@@ -19,13 +22,15 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Authentication use cases: registration, login, refresh and logout. Passwords never leave this service in plain text,
- * and the {@code user} module is only ever reached through {@link UserService}.
+ * Authentication use cases: registration, login, refresh, logout and changing the password. Passwords never leave this
+ * service in plain text, and the {@code user} module is only ever reached through {@link UserService}.
  *
- * <p>Deliberately not {@code @Transactional}: each call into a collaborator is its own transaction, so a token
- * revocation recorded while a request is being refused is committed even though the request then fails.
+ * <p>Deliberately not {@code @Transactional} as a whole: each call into a collaborator is its own transaction, so a token
+ * revocation or a wrong-password count recorded while a request is being refused is committed even though the request
+ * then fails. {@link #changePassword} is the exception, because its steps must succeed or fail together.
  */
 @Service
 public class AuthService {
@@ -42,18 +47,21 @@ public class AuthService {
     private final AuthenticationManager authenticationManager;
     private final AccessTokenService accessTokens;
     private final RefreshTokenService refreshTokens;
+    private final AuthProperties properties;
 
     public AuthService(
             UserService userService,
             PasswordEncoder passwordEncoder,
             AuthenticationManager authenticationManager,
             AccessTokenService accessTokens,
-            RefreshTokenService refreshTokens) {
+            RefreshTokenService refreshTokens,
+            AuthProperties properties) {
         this.userService = userService;
         this.passwordEncoder = passwordEncoder;
         this.authenticationManager = authenticationManager;
         this.accessTokens = accessTokens;
         this.refreshTokens = refreshTokens;
+        this.properties = properties;
     }
 
     /**
@@ -70,7 +78,9 @@ public class AuthService {
     }
 
     /**
-     * Signs a person in and starts a new session.
+     * Signs a person in and starts a new session. A wrong password is counted against the account, and enough of them in a
+     * row lock it for a while ({@code app.auth.max-failed-logins}, {@code app.auth.lockout-duration}); a correct one resets the count.
+     * The lock is only ever revealed to someone who knows the password: a wrong password still gets the plain 401.
      *
      * @throws UnauthorizedException if the address is unknown or the password is wrong (the same answer for both)
      * @throws ForbiddenException    if the password is right but the account is suspended or locked
@@ -85,11 +95,14 @@ public class AuthService {
         } catch (LockedException ex) {
             throw new ForbiddenException("This account is temporarily locked. Please try again later.");
         } catch (BadCredentialsException ex) {
+            // An unknown address is ignored there, so this does not tell the two cases apart either.
+            userService.recordFailedLogin(request.email(), properties.maxFailedLogins(), properties.lockoutDuration());
             throw new UnauthorizedException(INVALID_CREDENTIALS);
         }
 
         UserResponse user = userService.findActiveByEmail(authentication.getName())
                 .orElseThrow(() -> new UnauthorizedException(INVALID_CREDENTIALS));
+        userService.recordSuccessfulLogin(user.id());
         String refreshToken = refreshTokens.start(user.id(), client);
         log.info("User {} signed in", user.id());
         return new AuthSession(authResponse(user), refreshToken);
@@ -129,6 +142,35 @@ public class AuthService {
     public void logoutAll(UUID userId) {
         int ended = refreshTokens.revokeAll(userId);
         log.info("User {} signed out of all devices ({} session(s) ended)", userId, ended);
+    }
+
+    /**
+     * Changes the password of a signed-in person and ends every session, this one included (the screen then asks them to
+     * sign in with the new password). Needs the current password, so a stolen access token alone is not enough to take the
+     * account over. One transaction: the new hash and the end of the sessions happen together or not at all.
+     *
+     * @throws FieldValidationException on {@code currentPassword} if it is wrong, or on {@code newPassword} if it is the same
+     * @throws ForbiddenException       if the account is locked or suspended
+     */
+    @Transactional
+    public void changePassword(UUID userId, ChangePasswordRequest request) {
+        UserResponse user = userService.getActiveAccount(userId);
+        try {
+            authenticationManager.authenticate(
+                    UsernamePasswordAuthenticationToken.unauthenticated(user.email(), request.currentPassword()));
+        } catch (BadCredentialsException ex) {
+            // A 400 on the field, not a 401: a 401 would make the web app think its access token expired and retry.
+            throw new FieldValidationException("currentPassword", "This is not your current password.");
+        } catch (LockedException | DisabledException ex) {
+            throw new ForbiddenException("This account is locked or suspended.");
+        }
+        if (request.currentPassword().equals(request.newPassword())) {
+            throw new FieldValidationException("newPassword", "Choose a password that is different from your current one.");
+        }
+
+        userService.replacePassword(userId, passwordEncoder.encode(request.newPassword()));
+        int ended = refreshTokens.revokeAll(userId, RevocationReason.PASSWORD_CHANGED);
+        log.info("User {} changed their password ({} session(s) ended)", userId, ended);
     }
 
     private AuthResponse authResponse(UserResponse user) {

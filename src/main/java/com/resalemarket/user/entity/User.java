@@ -13,6 +13,7 @@ import jakarta.persistence.JoinTable;
 import jakarta.persistence.ManyToMany;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.Locale;
@@ -50,8 +51,15 @@ public class User {
     @Column(nullable = false, length = 20)
     private UserStatus status = UserStatus.ACTIVE;
 
+    /** Wrong passwords since the last successful sign-in or lock-out; reset to 0 when the account gets locked. */
+    @Column(name = "failed_login_attempts", nullable = false)
+    private int failedLoginAttempts;
+
     @Column(name = "locked_until")
     private Instant lockedUntil;
+
+    @Column(name = "last_login_at")
+    private Instant lastLoginAt;
 
     /** Set by the database ({@code DEFAULT now()}) and read back after the insert. */
     @Generated(event = EventType.INSERT)
@@ -90,5 +98,42 @@ public class User {
 
     public boolean isLockedAt(Instant now) {
         return lockedUntil != null && lockedUntil.isAfter(now);
+    }
+
+    /**
+     * Counts a wrong password and locks the account for {@code lockout} once {@code maxAttempts} wrong passwords have been
+     * entered in a row. The counter starts again at 0 after a lock, and attempts made while the account is locked (or
+     * suspended) are not counted, so someone hammering a locked account cannot keep extending the lock.
+     *
+     * @return {@code true} if this attempt locked the account
+     */
+    public boolean registerFailedLogin(Instant now, int maxAttempts, Duration lockout) {
+        if (status != UserStatus.ACTIVE || isLockedAt(now)) {
+            return false;
+        }
+        failedLoginAttempts++;
+        if (failedLoginAttempts < maxAttempts) {
+            return false;
+        }
+        lockedUntil = now.plus(lockout);
+        failedLoginAttempts = 0;
+        return true;
+    }
+
+    /** A correct password: forgets earlier wrong ones and any expired lock, and remembers when. */
+    public void registerSuccessfulLogin(Instant now) {
+        failedLoginAttempts = 0;
+        lockedUntil = null;
+        lastLoginAt = now;
+    }
+
+    /**
+     * Replaces the password hash. Whoever can do this has proved they own the account (they knew the old password or
+     * held a reset link), so an existing lock-out and the wrong-password counter are cleared too.
+     */
+    public void replacePasswordHash(String newPasswordHash) {
+        passwordHash = newPasswordHash;
+        failedLoginAttempts = 0;
+        lockedUntil = null;
     }
 }

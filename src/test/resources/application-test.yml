@@ -11,6 +11,15 @@ app:
     secret: test-only-secret-that-is-never-used-outside-the-test-suite
   auth:
     refresh-reuse-grace: 0s      # every reuse of a rotated token counts as theft; the tab-race grace is covered by unit tests
+    # Integration tests sign in from one address hundreds of times. The limits themselves are covered by unit tests and by
+    # RateLimitIntegrationTest, which lowers them for its own context.
+    rate-limits:
+      login: { attempts: 100000, window: 1m }
+      register: { attempts: 100000, window: 1m }
+      forgot-password-by-ip: { attempts: 100000, window: 1m }
+      forgot-password-by-email: { attempts: 100000, window: 1m }
+      reset-password: { attempts: 100000, window: 1m }
+      change-password: { attempts: 100000, window: 1m }
 
 logging:
   level:

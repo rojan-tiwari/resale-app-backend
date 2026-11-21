@@ -62,7 +62,15 @@ public class SecurityConfig {
         "/api/v1/auth/login",
         "/api/v1/auth/refresh",
         "/api/v1/auth/logout",
+        "/api/v1/auth/forgot-password",
+        "/api/v1/auth/reset-password",
     };
+
+    /**
+     * A member's public profile is addressed by id (a UUID). The pattern is restricted to the shape of a UUID so that
+     * {@code /users/me} (the caller's own, private profile) can never match it by accident.
+     */
+    private static final String PUBLIC_PROFILE = "/api/v1/users/{id:[0-9a-fA-F-]{36}}";
 
     /** Interactive API documentation; only reachable when springdoc is enabled (development). */
     private static final String[] API_DOCS = {
@@ -94,6 +102,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers(HttpMethod.GET, PUBLIC_GET_ENDPOINTS).permitAll()
+                        .requestMatchers(HttpMethod.GET, PUBLIC_PROFILE).permitAll()
                         .requestMatchers(HttpMethod.POST, PUBLIC_POST_ENDPOINTS).permitAll()
                         .requestMatchers(HttpMethod.GET, API_DOCS).permitAll()
                         .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**", "/actuator/info")
