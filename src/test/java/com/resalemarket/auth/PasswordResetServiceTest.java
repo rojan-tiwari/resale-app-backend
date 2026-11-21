@@ -55,7 +55,7 @@ class PasswordResetServiceTest {
     private PasswordResetService service;
 
     private final UserResponse user = new UserResponse(
-            USER_ID, "sita@example.com", "Sita Sharma", null, Instant.now(), List.of("ROLE_USER"));
+            USER_ID, "sita@example.com", "Sita Sharma", null, false, null, null, null, null, Instant.now(), List.of("ROLE_USER"));
 
     @BeforeEach
     void setUp() {
@@ -66,7 +66,7 @@ class PasswordResetServiceTest {
                 Duration.ofHours(1),
                 5,
                 Duration.ofMinutes(15),
-                new AuthProperties.RateLimits(null, null, null, null, null));
+                new AuthProperties.RateLimits(null, null, null, null, null, null));
         service = new PasswordResetService(
                 userService, tokens, refreshTokens, passwordEncoder, emailSender,
                 new FrontendProperties("https://resalemarket.example/"), properties);

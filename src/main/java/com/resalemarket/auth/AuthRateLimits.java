@@ -3,6 +3,7 @@ package com.resalemarket.auth;
 import com.resalemarket.common.ratelimit.RateLimiter;
 import com.resalemarket.user.entity.User;
 import java.time.Clock;
+import java.util.UUID;
 import org.springframework.stereotype.Component;
 
 /**
@@ -15,6 +16,7 @@ import org.springframework.stereotype.Component;
  *       ({@code server.forward-headers-strategy=native}), otherwise every visitor looks like the proxy and shares one limit.</li>
  *   <li>Forgot-password is also counted per <b>e-mail address</b>, so one inbox cannot be flooded from many addresses.
  *       The count does not depend on whether the address has an account.</li>
+ *   <li>Change-password is counted per <b>signed-in user</b>, because the caller is known there and the address is not the point.</li>
  * </ul>
  * Guessing one account's password across many addresses is stopped by the lock-out, not by these limits.
  */
@@ -28,6 +30,7 @@ class AuthRateLimits {
     private final RateLimiter forgotPasswordByIp;
     private final RateLimiter forgotPasswordByEmail;
     private final RateLimiter resetPassword;
+    private final RateLimiter changePassword;
 
     AuthRateLimits(AuthProperties properties, Clock clock) {
         AuthProperties.RateLimits limits = properties.rateLimits();
@@ -36,6 +39,7 @@ class AuthRateLimits {
         this.forgotPasswordByIp = new RateLimiter(limits.forgotPasswordByIp(), clock);
         this.forgotPasswordByEmail = new RateLimiter(limits.forgotPasswordByEmail(), clock);
         this.resetPassword = new RateLimiter(limits.resetPassword(), clock);
+        this.changePassword = new RateLimiter(limits.changePassword(), clock);
     }
 
     void login(ClientInfo client) {
@@ -53,6 +57,10 @@ class AuthRateLimits {
 
     void resetPassword(ClientInfo client) {
         resetPassword.check(ipOf(client));
+    }
+
+    void changePassword(UUID userId) {
+        changePassword.check(userId.toString());
     }
 
     private static String ipOf(ClientInfo client) {

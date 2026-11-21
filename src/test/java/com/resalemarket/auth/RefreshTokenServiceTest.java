@@ -47,7 +47,7 @@ class RefreshTokenServiceTest {
                 Duration.ofHours(1),
                 5,
                 Duration.ofMinutes(15),
-                new AuthProperties.RateLimits(null, null, null, null, null));
+                new AuthProperties.RateLimits(null, null, null, null, null, null));
         service = new RefreshTokenService(repository, properties, clock);
     }
 

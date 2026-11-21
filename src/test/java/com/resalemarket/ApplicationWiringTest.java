@@ -51,6 +51,7 @@ class ApplicationWiringTest {
     @Test
     void theApplicationStartsAndAllItsBeansWire() {
         assertThat(context.getBeanNamesForType(com.resalemarket.auth.PasswordController.class)).hasSize(1);
+        assertThat(context.getBeanNamesForType(com.resalemarket.user.UserController.class)).hasSize(1);
     }
 
     @Test

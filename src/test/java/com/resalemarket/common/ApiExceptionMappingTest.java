@@ -1,11 +1,13 @@
 package com.resalemarket.common;
 
+import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.resalemarket.common.exception.FieldValidationException;
 import com.resalemarket.common.exception.GlobalExceptionHandler;
 import com.resalemarket.common.exception.InvalidTokenException;
 import com.resalemarket.common.exception.TooManyRequestsException;
@@ -45,6 +47,19 @@ class ApiExceptionMappingTest {
     }
 
     @Test
+    void aFieldValidationExceptionLooksLikeABeanValidationFailure() throws Exception {
+        mockMvc.perform(get("/test/field"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.detail").value("One or more fields are invalid."))
+                .andExpect(jsonPath("$.errors", hasSize(1)))
+                .andExpect(jsonPath("$.errors[0].field").value("currentPassword"))
+                .andExpect(jsonPath("$.errors[0].message").value("This is not your current password."));
+    }
+
+    @Test
     void anInvalidTokenIsA400WithItsOwnCode() throws Exception {
         mockMvc.perform(get("/test/token"))
                 .andExpect(status().isBadRequest())
@@ -60,6 +75,11 @@ class ApiExceptionMappingTest {
         @GetMapping("/too-many")
         void tooMany() {
             throw new TooManyRequestsException(Duration.ofMinutes(5));
+        }
+
+        @GetMapping("/field")
+        void field() {
+            throw new FieldValidationException("currentPassword", "This is not your current password.");
         }
 
         @GetMapping("/token")

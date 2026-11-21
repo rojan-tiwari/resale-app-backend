@@ -19,6 +19,7 @@ app:
       forgot-password-by-ip: { attempts: 100000, window: 1m }
       forgot-password-by-email: { attempts: 100000, window: 1m }
       reset-password: { attempts: 100000, window: 1m }
+      change-password: { attempts: 100000, window: 1m }
 
 logging:
   level:

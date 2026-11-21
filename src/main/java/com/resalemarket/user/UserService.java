@@ -1,8 +1,14 @@
 package com.resalemarket.user;
 
 import com.resalemarket.common.exception.ConflictException;
+import com.resalemarket.common.exception.FieldValidationException;
+import com.resalemarket.common.exception.ResourceNotFoundException;
 import com.resalemarket.common.exception.UnauthorizedException;
+import com.resalemarket.location.LocationService;
+import com.resalemarket.location.dto.LocationNames;
 import com.resalemarket.user.dto.NewUser;
+import com.resalemarket.user.dto.PublicUserResponse;
+import com.resalemarket.user.dto.UpdateProfileRequest;
 import com.resalemarket.user.dto.UserResponse;
 import com.resalemarket.user.entity.Role;
 import com.resalemarket.user.entity.User;
@@ -28,6 +34,7 @@ public class UserService {
     private final UserProfileRepository profileRepository;
     private final RoleRepository roleRepository;
     private final UserMapper mapper;
+    private final LocationService locationService;
     private final Clock clock;
 
     public UserService(
@@ -35,11 +42,13 @@ public class UserService {
             UserProfileRepository profileRepository,
             RoleRepository roleRepository,
             UserMapper mapper,
+            LocationService locationService,
             Clock clock) {
         this.userRepository = userRepository;
         this.profileRepository = profileRepository;
         this.roleRepository = roleRepository;
         this.mapper = mapper;
+        this.locationService = locationService;
         this.clock = clock;
     }
 
@@ -74,6 +83,64 @@ public class UserService {
     /** The account with this id if it exists and may sign in. Used to decide whether a session may continue. */
     public Optional<UserResponse> findActiveById(UUID id) {
         return userRepository.findWithRolesById(id).filter(UserService::isActive).map(this::toResponse);
+    }
+
+    /**
+     * The signed-in person's own account, with the private fields.
+     *
+     * @throws UnauthorizedException if the account was suspended or deleted after the access token was issued: the token is
+     *     still valid by signature, but the session must end (the client renews the token, is refused, and signs out)
+     */
+    public UserResponse getActiveAccount(UUID id) {
+        return findActiveById(id).orElseThrow(UserService::sessionEnded);
+    }
+
+    /**
+     * Saves the profile form. The whole editable profile is replaced, so an optional field left empty is cleared.
+     *
+     * @throws FieldValidationException if the location ids do not belong together, or the phone number is to be shown
+     *     but there is none
+     * @throws UnauthorizedException    if the account may no longer be used
+     */
+    @Transactional
+    public UserResponse updateProfile(UUID userId, UpdateProfileRequest request) {
+        User user = userRepository.findWithRolesById(userId).filter(UserService::isActive).orElseThrow(UserService::sessionEnded);
+        UserProfile profile = profileRepository.findById(userId).orElseThrow(() -> missingProfile(userId));
+
+        String phone = NepalPhone.normalise(request.phone());
+        if (request.showPhone() && phone == null) {
+            throw new FieldValidationException("showPhone", "Add a phone number to show it on your profile.");
+        }
+        locationService.resolve(request.provinceId(), request.districtId(), request.municipalityId());
+
+        profile.update(
+                request.displayName(),
+                phone,
+                request.showPhone(),
+                request.bio(),
+                request.provinceId(),
+                request.districtId(),
+                request.municipalityId());
+        // Flushed here so a concurrent edit (optimistic lock) fails inside this call and the database timestamps are read back.
+        profileRepository.saveAndFlush(profile);
+        return mapper.toResponse(user, profile);
+    }
+
+    /**
+     * What anyone may see about a person. Only accounts in good standing have a public profile: a suspended or deleted one is
+     * answered like an unknown id, so the response does not reveal that the account exists.
+     *
+     * @throws ResourceNotFoundException if there is no such active account
+     */
+    public PublicUserResponse getPublicProfile(UUID id) {
+        User user = userRepository.findById(id).filter(UserService::isActive)
+                .orElseThrow(() -> new ResourceNotFoundException("User", id));
+        UserProfile profile = profileRepository.findById(id).orElseThrow(() -> missingProfile(id));
+        LocationNames location = locationService.resolve(
+                profile.getProvinceId(), profile.getDistrictId(), profile.getMunicipalityId());
+        // The number is public only with its owner's explicit consent.
+        String phone = profile.isShowPhone() ? profile.getPhone() : null;
+        return new PublicUserResponse(user.getId(), profile.getDisplayName(), profile.getBio(), user.getCreatedAt(), location, phone);
     }
 
     /**

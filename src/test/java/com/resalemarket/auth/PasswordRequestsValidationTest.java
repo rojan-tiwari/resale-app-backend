@@ -2,6 +2,7 @@ package com.resalemarket.auth;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.resalemarket.auth.dto.ChangePasswordRequest;
 import com.resalemarket.auth.dto.ForgotPasswordRequest;
 import com.resalemarket.auth.dto.ResetPasswordRequest;
 import jakarta.validation.Validation;
@@ -82,5 +83,27 @@ class PasswordRequestsValidationTest {
     void resetPasswordNeverPrintsTheTokenOrThePassword() {
         assertThat(new ResetPasswordRequest("secret-token", "secret password").toString())
                 .doesNotContain("secret-token", "secret password");
+    }
+
+    // --- change password ----------------------------------------------------------------------------------------
+
+    @Test
+    void changePasswordNeedsBothPasswords() {
+        assertThat(validator.validate(new ChangePasswordRequest("old password", "a brand new password"))).isEmpty();
+        assertThat(invalidFields(new ChangePasswordRequest(null, null))).containsExactlyInAnyOrder("currentPassword", "newPassword");
+        assertThat(invalidFields(new ChangePasswordRequest("old password", "short"))).containsExactly("newPassword");
+    }
+
+    @Test
+    void changePasswordDoesNotJudgeTheLengthOfTheCurrentPasswordOnlyItsByteLimit() {
+        // An old, shorter password must still be accepted as the *current* one; but nothing over 72 bytes can be stored.
+        assertThat(validator.validate(new ChangePasswordRequest("abc", "a brand new password"))).isEmpty();
+        assertThat(invalidFields(new ChangePasswordRequest("a".repeat(73), "a brand new password")))
+                .containsExactly("currentPassword");
+    }
+
+    @Test
+    void changePasswordNeverPrintsEitherPassword() {
+        assertThat(new ChangePasswordRequest("old secret", "new secret").toString()).doesNotContain("old secret", "new secret");
     }
 }
