@@ -88,3 +88,7 @@ app:
     refresh-cookie:
       secure: true               # HTTPS only; the dev profile turns this off for http://localhost
       same-site: Strict
+    max-failed-logins: 5         # this many wrong passwords in a row lock the account ...
+    lockout-duration: 15m        # ... for this long (resetting the password lifts the lock at once)
+    # Rate limits of the public auth endpoints are `app.auth.rate-limits.<rule>.attempts` / `.window`, rules: login, register.
+    # The defaults are in AuthProperties.

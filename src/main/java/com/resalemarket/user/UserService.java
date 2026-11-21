@@ -7,8 +7,12 @@ import com.resalemarket.user.entity.Role;
 import com.resalemarket.user.entity.User;
 import com.resalemarket.user.entity.UserProfile;
 import com.resalemarket.user.entity.UserStatus;
+import java.time.Clock;
+import java.time.Duration;
 import java.util.Optional;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -17,20 +21,25 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(readOnly = true)
 public class UserService {
 
+    private static final Logger log = LoggerFactory.getLogger(UserService.class);
+
     private final UserRepository userRepository;
     private final UserProfileRepository profileRepository;
     private final RoleRepository roleRepository;
     private final UserMapper mapper;
+    private final Clock clock;
 
     public UserService(
             UserRepository userRepository,
             UserProfileRepository profileRepository,
             RoleRepository roleRepository,
-            UserMapper mapper) {
+            UserMapper mapper,
+            Clock clock) {
         this.userRepository = userRepository;
         this.profileRepository = profileRepository;
         this.roleRepository = roleRepository;
         this.mapper = mapper;
+        this.clock = clock;
     }
 
     /**
@@ -66,13 +75,35 @@ public class UserService {
         return userRepository.findWithRolesById(id).filter(UserService::isActive).map(this::toResponse);
     }
 
+    /**
+     * Counts a wrong password for the account with this e-mail address, and locks it when there have been too many in a row.
+     * An unknown address is ignored. This runs in its own transaction so the count is kept even though the sign-in then fails.
+     */
+    @Transactional
+    public void recordFailedLogin(String email, int maxAttempts, Duration lockout) {
+        userRepository.findWithLockByEmail(User.normaliseEmail(email)).ifPresent(user -> {
+            if (user.registerFailedLogin(clock.instant(), maxAttempts, lockout)) {
+                log.warn("User {} locked for {} after {} wrong passwords in a row", user.getId(), lockout, maxAttempts);
+            }
+        });
+    }
+
+    /** Forgets earlier wrong passwords and records when the person signed in. */
+    @Transactional
+    public void recordSuccessfulLogin(UUID userId) {
+        userRepository.findWithLockById(userId).ifPresent(user -> user.registerSuccessfulLogin(clock.instant()));
+    }
+
     private static boolean isActive(User user) {
         return user.getStatus() == UserStatus.ACTIVE;
     }
 
+    private static IllegalStateException missingProfile(UUID userId) {
+        return new IllegalStateException("User " + userId + " has no profile.");
+    }
+
     private UserResponse toResponse(User user) {
-        UserProfile profile = profileRepository.findById(user.getId())
-                .orElseThrow(() -> new IllegalStateException("User " + user.getId() + " has no profile."));
+        UserProfile profile = profileRepository.findById(user.getId()).orElseThrow(() -> missingProfile(user.getId()));
         return mapper.toResponse(user, profile);
     }
 }

@@ -12,7 +12,10 @@ logging:
     com.resalemarket: INFO
 
 server:
-  forward-headers-strategy: framework   # honour X-Forwarded-* from the reverse proxy / load balancer
+  # Honour X-Forwarded-* from the reverse proxy / load balancer. `native` (Tomcat's RemoteIpValve) also makes the client's real IP
+  # the request's remote address, which the rate limits count by; `framework` would leave every visitor looking like the proxy.
+  # Only proxies on private addresses are trusted (server.tomcat.remoteip.internal-proxies), so a visitor cannot spoof it.
+  forward-headers-strategy: native
   compression:
     enabled: true
 

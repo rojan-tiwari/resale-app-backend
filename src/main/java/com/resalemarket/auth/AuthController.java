@@ -38,10 +38,12 @@ public class AuthController {
 
     private final AuthService authService;
     private final RefreshCookies refreshCookies;
+    private final AuthRateLimits rateLimits;
 
-    public AuthController(AuthService authService, RefreshCookies refreshCookies) {
+    public AuthController(AuthService authService, RefreshCookies refreshCookies, AuthRateLimits rateLimits) {
         this.authService = authService;
         this.refreshCookies = refreshCookies;
+        this.rateLimits = rateLimits;
     }
 
     @PostMapping("/register")
@@ -52,7 +54,9 @@ public class AuthController {
     @ApiResponse(responseCode = "201", description = "Account created")
     @ApiResponse(responseCode = "400", description = "Invalid input (VALIDATION_FAILED, with the offending fields in `errors`)")
     @ApiResponse(responseCode = "409", description = "The email address is already registered (CONFLICT)")
-    public ResponseEntity<UserResponse> register(@Valid @RequestBody RegisterRequest request) {
+    @ApiResponse(responseCode = "429", description = "Too many accounts were created from this address recently (TOO_MANY_REQUESTS, with `Retry-After`)")
+    public ResponseEntity<UserResponse> register(@Valid @RequestBody RegisterRequest request, HttpServletRequest http) {
+        rateLimits.register(clientOf(http));
         return ResponseEntity.status(HttpStatus.CREATED)
                 .cacheControl(CacheControl.noStore())
                 .body(authService.register(request));
@@ -67,8 +71,11 @@ public class AuthController {
     @ApiResponse(responseCode = "400", description = "Email or password missing (VALIDATION_FAILED)")
     @ApiResponse(responseCode = "401", description = "Unknown email or wrong password; the answer is the same for both (UNAUTHORIZED)")
     @ApiResponse(responseCode = "403", description = "The password is right but the account is suspended or locked (FORBIDDEN)")
+    @ApiResponse(responseCode = "429", description = "Too many sign-in attempts from this address recently (TOO_MANY_REQUESTS, with `Retry-After`)")
     public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request, HttpServletRequest http) {
-        return respond(authService.login(request, clientOf(http)));
+        ClientInfo client = clientOf(http);
+        rateLimits.login(client);
+        return respond(authService.login(request, client));
     }
 
     @PostMapping("/refresh")

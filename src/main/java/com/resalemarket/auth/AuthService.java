@@ -21,11 +21,12 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 /**
- * Authentication use cases: registration, login, refresh and logout. Passwords never leave this service in plain text,
- * and the {@code user} module is only ever reached through {@link UserService}.
+ * Authentication use cases: registration, login, refresh and logout. Passwords never leave this
+ * service in plain text, and the {@code user} module is only ever reached through {@link UserService}.
  *
  * <p>Deliberately not {@code @Transactional}: each call into a collaborator is its own transaction, so a token
- * revocation recorded while a request is being refused is committed even though the request then fails.
+ * revocation or a wrong-password count recorded while a request is being refused is committed even though the request
+ * then fails.
  */
 @Service
 public class AuthService {
@@ -42,18 +43,21 @@ public class AuthService {
     private final AuthenticationManager authenticationManager;
     private final AccessTokenService accessTokens;
     private final RefreshTokenService refreshTokens;
+    private final AuthProperties properties;
 
     public AuthService(
             UserService userService,
             PasswordEncoder passwordEncoder,
             AuthenticationManager authenticationManager,
             AccessTokenService accessTokens,
-            RefreshTokenService refreshTokens) {
+            RefreshTokenService refreshTokens,
+            AuthProperties properties) {
         this.userService = userService;
         this.passwordEncoder = passwordEncoder;
         this.authenticationManager = authenticationManager;
         this.accessTokens = accessTokens;
         this.refreshTokens = refreshTokens;
+        this.properties = properties;
     }
 
     /**
@@ -70,7 +74,9 @@ public class AuthService {
     }
 
     /**
-     * Signs a person in and starts a new session.
+     * Signs a person in and starts a new session. A wrong password is counted against the account, and enough of them in a
+     * row lock it for a while ({@code app.auth.max-failed-logins}, {@code app.auth.lockout-duration}); a correct one resets the count.
+     * The lock is only ever revealed to someone who knows the password: a wrong password still gets the plain 401.
      *
      * @throws UnauthorizedException if the address is unknown or the password is wrong (the same answer for both)
      * @throws ForbiddenException    if the password is right but the account is suspended or locked
@@ -85,11 +91,14 @@ public class AuthService {
         } catch (LockedException ex) {
             throw new ForbiddenException("This account is temporarily locked. Please try again later.");
         } catch (BadCredentialsException ex) {
+            // An unknown address is ignored there, so this does not tell the two cases apart either.
+            userService.recordFailedLogin(request.email(), properties.maxFailedLogins(), properties.lockoutDuration());
             throw new UnauthorizedException(INVALID_CREDENTIALS);
         }
 
         UserResponse user = userService.findActiveByEmail(authentication.getName())
                 .orElseThrow(() -> new UnauthorizedException(INVALID_CREDENTIALS));
+        userService.recordSuccessfulLogin(user.id());
         String refreshToken = refreshTokens.start(user.id(), client);
         log.info("User {} signed in", user.id());
         return new AuthSession(authResponse(user), refreshToken);
