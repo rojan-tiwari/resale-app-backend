@@ -23,6 +23,8 @@ app:
 
   storage:
     root: target/test-uploads    # thrown away by `mvn clean`
+  search:
+    popular-cache-ttl: 0s        # no caching in tests: each test sees the rows it has just inserted
   listing:
     rate-limits:
       create: { attempts: 100000, window: 1m }

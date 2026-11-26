@@ -37,7 +37,7 @@ class FlywayMigrationIntegrationTest {
         Integer applied = jdbc.queryForObject("SELECT count(*) FROM flyway_schema_history WHERE success", Integer.class);
 
         assertThat(failed).isZero();
-        assertThat(applied).isGreaterThanOrEqualTo(10);
+        assertThat(applied).isGreaterThanOrEqualTo(11);
     }
 
     @Test
@@ -106,6 +106,20 @@ class FlywayMigrationIntegrationTest {
         UUID listing = insertListing(seller, "mobiles-tablets", "mobile-phones", "Kathmandu");
 
         assertThat(listing).isNotNull();
+    }
+
+    @Test
+    void priceSortIndexesCarryTheTieBreakAndAreLimitedToPublicListings() {
+        // V11: "sort by price" needs the date tie-break inside the index (see the migration), one index per direction, both partial
+        // over exactly the statuses every public query repeats.
+        String asc = indexDefinition("idx_listings_public_price_asc");
+        String desc = indexDefinition("idx_listings_public_price_desc");
+
+        assertThat(asc).contains("(price, published_at DESC, id)").contains("status")
+                .contains("ACTIVE").contains("RESERVED");
+        assertThat(desc).contains("(price DESC, published_at DESC, id)").contains("ACTIVE").contains("RESERVED");
+        assertThat(jdbc.queryForList("SELECT indexname FROM pg_indexes WHERE indexname = 'idx_listings_public_price'", String.class))
+                .as("the single-column index of V5 was replaced").isEmpty();
     }
 
     @Test
@@ -189,5 +203,11 @@ class FlywayMigrationIntegrationTest {
                         + "VALUES (?, ?, ?, 'Test listing', 'A test listing', 1000, 'GOOD', ?, ?) RETURNING id",
                 UUID.class,
                 seller, category, subcategory, province, district);
+    }
+
+    private String indexDefinition(String name) {
+        List<String> definitions = jdbc.queryForList("SELECT indexdef FROM pg_indexes WHERE indexname = ?", String.class, name);
+        assertThat(definitions).as("index %s exists", name).hasSize(1);
+        return definitions.get(0);
     }
 }

@@ -52,6 +52,10 @@ public class SecurityConfig {
         "/api/v1/locations/**",
         "/api/v1/categories",
         "/api/v1/categories/*",
+        // Discovery: search and the home page lists. These literal paths cannot be confused with a listing id (a UUID).
+        "/api/v1/listings",
+        "/api/v1/listings/featured",
+        "/api/v1/listings/recent",
     };
 
     /**

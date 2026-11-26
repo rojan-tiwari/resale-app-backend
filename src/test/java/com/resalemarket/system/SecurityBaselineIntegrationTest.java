@@ -46,7 +46,8 @@ class SecurityBaselineIntegrationTest {
 
     @Test
     void everythingNotExplicitlyPublicRequiresAuthentication() throws Exception {
-        mockMvc.perform(get("/api/v1/listings"))
+        // "mine" sits next to the public listing paths and must never be mistaken for one of them
+        mockMvc.perform(get("/api/v1/listings/mine"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE, "Bearer"))
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
