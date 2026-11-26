@@ -25,6 +25,7 @@ import com.resalemarket.user.entity.UserProfile;
 import com.resalemarket.user.entity.UserStatus;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -362,6 +363,64 @@ class UserServiceTest {
         assertThat(PublicUserResponse.class.getRecordComponents())
                 .extracting(component -> component.getName())
                 .doesNotContain("email", "roles", "showPhone");
+    }
+
+    @Test
+    void findingAPublicProfileGivesAnEmptyResultInsteadOfA404ForAnInactiveMember() {
+        UUID suspended = UUID.randomUUID();
+        UUID unknown = UUID.randomUUID();
+        when(userRepository.findById(suspended)).thenReturn(Optional.of(account(suspended, UserStatus.SUSPENDED)));
+        when(userRepository.findById(unknown)).thenReturn(Optional.empty());
+
+        assertThat(service.findPublicProfile(suspended)).isEmpty();
+        assertThat(service.findPublicProfile(unknown)).isEmpty();
+        verifyNoInteractions(profileRepository);
+    }
+
+    @Test
+    void anActiveAccountMayActAndASuspendedOrDeletedOneMayNot() {
+        UUID active = UUID.randomUUID();
+        UUID suspended = UUID.randomUUID();
+        UUID deleted = UUID.randomUUID();
+        UUID unknown = UUID.randomUUID();
+        when(userRepository.findById(active)).thenReturn(Optional.of(account(active, UserStatus.ACTIVE)));
+        when(userRepository.findById(suspended)).thenReturn(Optional.of(account(suspended, UserStatus.SUSPENDED)));
+        when(userRepository.findById(deleted)).thenReturn(Optional.of(account(deleted, UserStatus.DELETED)));
+        when(userRepository.findById(unknown)).thenReturn(Optional.empty());
+
+        service.requireActive(active);
+
+        for (UUID id : new UUID[] {suspended, deleted, unknown}) {
+            assertThatThrownBy(() -> service.requireActive(id))
+                    .isInstanceOf(UnauthorizedException.class)
+                    .hasMessage("Your session has expired. Please sign in again.");
+        }
+    }
+
+    @Test
+    void isActiveIsTrueOnlyForAnExistingAccountInGoodStanding() {
+        UUID active = UUID.randomUUID();
+        UUID suspended = UUID.randomUUID();
+        UUID deleted = UUID.randomUUID();
+        UUID unknown = UUID.randomUUID();
+        when(userRepository.findById(active)).thenReturn(Optional.of(account(active, UserStatus.ACTIVE)));
+        when(userRepository.findById(suspended)).thenReturn(Optional.of(account(suspended, UserStatus.SUSPENDED)));
+        when(userRepository.findById(deleted)).thenReturn(Optional.of(account(deleted, UserStatus.DELETED)));
+        when(userRepository.findById(unknown)).thenReturn(Optional.empty());
+
+        assertThat(service.isActive(active)).isTrue();
+        assertThat(service.isActive(suspended)).isFalse();
+        assertThat(service.isActive(deleted)).isFalse();
+        assertThat(service.isActive(unknown)).isFalse();
+        verifyNoInteractions(profileRepository);          // one row: no profile, no place names
+    }
+
+    @Test
+    void theIdsOfMembersWhoMustNotBeShownAreTheSuspendedAndDeletedOnes() {
+        UUID a = UUID.randomUUID();
+        when(userRepository.findIdsByStatusIn(List.of(UserStatus.SUSPENDED, UserStatus.DELETED))).thenReturn(List.of(a));
+
+        assertThat(service.inactiveUserIds()).containsExactly(a);
     }
 
     @Test

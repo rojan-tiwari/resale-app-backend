@@ -16,6 +16,8 @@ import com.resalemarket.user.entity.UserProfile;
 import com.resalemarket.user.entity.UserStatus;
 import java.time.Clock;
 import java.time.Duration;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -133,14 +135,34 @@ public class UserService {
      * @throws ResourceNotFoundException if there is no such active account
      */
     public PublicUserResponse getPublicProfile(UUID id) {
-        User user = userRepository.findById(id).filter(UserService::isActive)
-                .orElseThrow(() -> new ResourceNotFoundException("User", id));
-        UserProfile profile = profileRepository.findById(id).orElseThrow(() -> missingProfile(id));
-        LocationNames location = locationService.resolve(
-                profile.getProvinceId(), profile.getDistrictId(), profile.getMunicipalityId());
-        // The number is public only with its owner's explicit consent.
-        String phone = profile.isShowPhone() ? profile.getPhone() : null;
-        return new PublicUserResponse(user.getId(), profile.getDisplayName(), profile.getBio(), user.getCreatedAt(), location, phone);
+        return findPublicProfile(id).orElseThrow(() -> new ResourceNotFoundException("User", id));
+    }
+
+    /** Like {@link #getPublicProfile}, but an unknown, suspended or deleted account is an empty result instead of a 404. */
+    public Optional<PublicUserResponse> findPublicProfile(UUID id) {
+        return userRepository.findById(id).filter(UserService::isActive).map(user -> {
+            UserProfile profile = profileRepository.findById(id).orElseThrow(() -> missingProfile(id));
+            LocationNames location = locationService.resolve(
+                    profile.getProvinceId(), profile.getDistrictId(), profile.getMunicipalityId());
+            // The number is public only with its owner's explicit consent.
+            String phone = profile.isShowPhone() ? profile.getPhone() : null;
+            return new PublicUserResponse(user.getId(), profile.getDisplayName(), profile.getBio(), user.getCreatedAt(), location, phone);
+        });
+    }
+
+    /** Whether the account exists and may sign in (not suspended or deleted): one row, no profile, for callers that only need to know. */
+    public boolean isActive(UUID userId) {
+        return userRepository.findById(userId).filter(UserService::isActive).isPresent();
+    }
+
+    /**
+     * Makes sure the account may still act. An access token stays valid for up to 15 minutes after an account is suspended, so
+     * actions that publish something call this instead of trusting the token alone.
+     *
+     * @throws UnauthorizedException if the account was suspended or deleted (the web app then signs the person out)
+     */
+    public void requireActive(UUID userId) {
+        userRepository.findById(userId).filter(UserService::isActive).orElseThrow(UserService::sessionEnded);
     }
 
     /**
@@ -172,6 +194,15 @@ public class UserService {
     public void replacePassword(UUID userId, String newPasswordHash) {
         User user = userRepository.findWithLockById(userId).filter(UserService::isActive).orElseThrow(UserService::sessionEnded);
         user.replacePasswordHash(newPasswordHash);
+    }
+
+    /**
+     * Ids of the members whose ads must not be shown to the public: suspended and deleted accounts. Search and the home page
+     * leave their listings out. The list is empty almost always and short otherwise, so it is passed to the search as an
+     * exclusion; if suspensions ever become numerous, a visibility flag on the listing replaces it.
+     */
+    public List<UUID> inactiveUserIds() {
+        return userRepository.findIdsByStatusIn(List.of(UserStatus.SUSPENDED, UserStatus.DELETED));
     }
 
     private static boolean isActive(User user) {
