@@ -183,6 +183,47 @@ public class ListingService {
         return responses.summaries(found);
     }
 
+    // ----------------------------------------------------------------------- for other modules (favourites, discovery)
+
+    /**
+     * Makes sure a listing is live and its seller is in good standing, i.e. that a visitor could open it.
+     *
+     * @throws ResourceNotFoundException if it is not (the same answer as for an unknown id)
+     */
+    public void requireLive(UUID id) {
+        Listing listing = repository.findById(id).filter(found -> found.getStatus().isPublic())
+                .orElseThrow(() -> new ResourceNotFoundException("Listing", id));
+        if (!userService.isActive(listing.getSellerId())) {
+            throw new ResourceNotFoundException("Listing", id);
+        }
+    }
+
+    /**
+     * Cards for listings a member saved, keyed by listing id. A listing that is live, or that was sold (a saved ad that sold is
+     * still worth showing, flagged as sold), gets a card. A listing that was taken down, rejected or never went live gets none: its
+     * content was not meant to be public any more, so it is not handed out through someone's favourites either. Ids that do not
+     * exist are left out as well.
+     */
+    public Map<UUID, ListingSummaryResponse> savedCards(Collection<UUID> ids) {
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        List<UUID> inactiveSellers = userService.inactiveUserIds();
+        List<Listing> shown = repository.findAllById(ids).stream()
+                .filter(listing -> listing.getStatus().isPublic() || listing.getStatus() == ListingStatus.SOLD)
+                .filter(listing -> !inactiveSellers.contains(listing.getSellerId()))
+                .toList();
+        return responses.summaries(shown).stream().collect(Collectors.toMap(ListingSummaryResponse::id, Function.identity()));
+    }
+
+    /** The category (top-level) of each listing, keyed by listing id; unknown ids are left out. Used to see what a member likes. */
+    public Map<UUID, Integer> categoryIds(Collection<UUID> ids) {
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        return repository.findAllById(ids).stream().collect(Collectors.toMap(Listing::getId, Listing::getCategoryId));
+    }
+
     // ------------------------------------------------------------------------------------------------ internals
 
     private void applyStatus(Listing listing, Viewer viewer, ListingStatus target, String reason) {
