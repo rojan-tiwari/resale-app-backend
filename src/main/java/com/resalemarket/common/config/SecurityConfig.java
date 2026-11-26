@@ -56,6 +56,7 @@ public class SecurityConfig {
         "/api/v1/listings",
         "/api/v1/listings/featured",
         "/api/v1/listings/recent",
+        "/api/v1/listings/recommended",
     };
 
     /**
