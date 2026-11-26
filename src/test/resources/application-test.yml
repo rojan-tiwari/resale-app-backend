@@ -21,6 +21,9 @@ app:
       reset-password: { attempts: 100000, window: 1m }
       change-password: { attempts: 100000, window: 1m }
 
+  storage:
+    root: target/test-uploads    # thrown away by `mvn clean`
+
 logging:
   level:
     root: WARN
