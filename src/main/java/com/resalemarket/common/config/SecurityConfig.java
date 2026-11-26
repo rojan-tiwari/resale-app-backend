@@ -55,6 +55,18 @@ public class SecurityConfig {
     };
 
     /**
+     * Reading a listing is public (what the caller may <em>see</em> is decided in {@code ListingAccess}: a draft is a 404 for
+     * everyone but its seller). Every id is restricted to the shape of a UUID, so {@code /listings/mine} (the caller's own list)
+     * can never match by accident and stays behind the sign-in. Changing anything is not listed here, hence denied by default.
+     */
+    private static final String[] PUBLIC_LISTING_READS = {
+        "/api/v1/listings/{id:[0-9a-fA-F-]{36}}",
+        "/api/v1/listings/{id:[0-9a-fA-F-]{36}}/similar",
+        "/api/v1/listings/{id:[0-9a-fA-F-]{36}}/images/{imageId:[0-9a-fA-F-]{36}}",
+        "/api/v1/users/{id:[0-9a-fA-F-]{36}}/listings",
+    };
+
+    /**
      * Anonymous callers may create an account and sign in. {@code refresh} and {@code logout} are public because they are
      * authenticated by the refresh-token cookie, not by an access token: a person whose access token has just expired must
      * still be able to restore the session or sign out.
@@ -105,6 +117,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers(HttpMethod.GET, PUBLIC_GET_ENDPOINTS).permitAll()
                         .requestMatchers(HttpMethod.GET, PUBLIC_PROFILE).permitAll()
+                        .requestMatchers(HttpMethod.GET, PUBLIC_LISTING_READS).permitAll()
                         .requestMatchers(HttpMethod.POST, PUBLIC_POST_ENDPOINTS).permitAll()
                         .requestMatchers(HttpMethod.GET, API_DOCS).permitAll()
                         .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**", "/actuator/info")

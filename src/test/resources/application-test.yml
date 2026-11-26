@@ -23,6 +23,10 @@ app:
 
   storage:
     root: target/test-uploads    # thrown away by `mvn clean`
+  listing:
+    rate-limits:
+      create: { attempts: 100000, window: 1m }
+      image-upload: { attempts: 100000, window: 1m }
 
 logging:
   level:
