@@ -46,10 +46,12 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 @EnableMethodSecurity
 public class SecurityConfig {
 
-    /** Public read-only API endpoints. Later phases append (e.g. listings, categories, public seller profiles). */
+    /** Public read-only API endpoints: reference data, the category tree, search and the home page lists. */
     private static final String[] PUBLIC_GET_ENDPOINTS = {
         "/api/v1/system/ping",
         "/api/v1/locations/**",
+        "/api/v1/categories",
+        "/api/v1/categories/*",
     };
 
     /**
