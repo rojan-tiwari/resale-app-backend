@@ -56,6 +56,20 @@ class SecurityBaselineIntegrationTest {
     }
 
     @Test
+    void discoveryIsPublicForReadingOnlyAndFavouritesAreNot() throws Exception {
+        for (String path : new String[] {"/api/v1/listings", "/api/v1/listings/featured", "/api/v1/listings/recent", "/api/v1/listings/recommended"}) {
+            mockMvc.perform(get(path)).andExpect(status().isOk());
+        }
+        mockMvc.perform(post("/api/v1/listings")).andExpect(status().isUnauthorized());
+        for (String path : new String[] {"/api/v1/favorites", "/api/v1/favorites/ids"}) {
+            mockMvc.perform(get(path))
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+        }
+        mockMvc.perform(post("/api/v1/favorites/0b8f0a54-6a52-4d3c-9f43-0a3d4a8d6c11")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void publicEndpointsAreReadOnly() throws Exception {
         mockMvc.perform(post("/api/v1/locations/provinces"))
                 .andExpect(status().isUnauthorized());
