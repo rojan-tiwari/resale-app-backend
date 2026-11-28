@@ -8,12 +8,16 @@ import com.resalemarket.listing.ListingService;
 import com.resalemarket.listing.dto.ListingSummaryResponse;
 import com.resalemarket.messaging.dto.ConversationResponse;
 import com.resalemarket.messaging.dto.ConversationRole;
+import com.resalemarket.messaging.dto.MessagePreview;
 import com.resalemarket.messaging.dto.ParticipantResponse;
 import com.resalemarket.messaging.entity.Conversation;
+import com.resalemarket.messaging.entity.Message;
 import com.resalemarket.user.UserService;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
@@ -34,14 +38,23 @@ public class ConversationService {
     public record Started(ConversationResponse conversation, boolean created) {
     }
 
+    /** How many characters of the last message a row of the inbox shows. */
+    static final int PREVIEW_LENGTH = 140;
+
     private final ConversationRepository repository;
+    private final MessageRepository messageRepository;
     private final ListingService listingService;
     private final UserService userService;
     private final MessagingRateLimits rateLimits;
 
     public ConversationService(
-            ConversationRepository repository, ListingService listingService, UserService userService, MessagingRateLimits rateLimits) {
+            ConversationRepository repository,
+            MessageRepository messageRepository,
+            ListingService listingService,
+            UserService userService,
+            MessagingRateLimits rateLimits) {
         this.repository = repository;
+        this.messageRepository = messageRepository;
         this.listingService = listingService;
         this.userService = userService;
         this.rateLimits = rateLimits;
@@ -91,7 +104,17 @@ public class ConversationService {
                 .orElseThrow(() -> new ResourceNotFoundException("Conversation", id));
     }
 
-    /** One batch of lookups for the listings and one for the people, however many conversations there are (no query per row). */
+    /**
+     * Like {@link #requireParticipant}, and the conversation stays locked until the transaction ends, so what the caller does next
+     * (sending a message) is not interleaved with the same thing done by the other person or by a second tab.
+     */
+    Conversation requireParticipantForUpdate(UUID userId, UUID id) {
+        return repository.findWithLockById(id)
+                .filter(conversation -> conversation.isParticipant(userId))
+                .orElseThrow(() -> new ResourceNotFoundException("Conversation", id));
+    }
+
+    /** One batch of lookups for the listings, one for the people and one for the last messages, however many conversations (no query per row). */
     private List<ConversationResponse> toResponses(UUID me, List<Conversation> conversations) {
         if (conversations.isEmpty()) {
             return List.of();
@@ -99,11 +122,14 @@ public class ConversationService {
         Map<UUID, ListingSummaryResponse> cards =
                 listingService.savedCards(conversations.stream().map(Conversation::getListingId).distinct().toList());
         Map<UUID, String> names = userService.displayNames(conversations.stream().map(c -> c.otherParty(me)).distinct().toList());
+        Map<UUID, Message> newest = messageRepository.findNewestOfEach(conversations.stream().map(Conversation::getId).toList()).stream()
+                .collect(Collectors.toMap(Message::getConversationId, Function.identity()));
         return conversations.stream()
                 .map(conversation -> {
                     ListingSummaryResponse card = cards.get(conversation.getListingId());
                     UUID otherId = conversation.otherParty(me);
                     String name = names.get(otherId);
+                    Message last = newest.get(conversation.getId());
                     return new ConversationResponse(
                             conversation.getId(),
                             conversation.getListingId(),
@@ -111,9 +137,19 @@ public class ConversationService {
                             card,
                             conversation.getBuyerId().equals(me) ? ConversationRole.BUYER : ConversationRole.SELLER,
                             new ParticipantResponse(otherId, name, name != null),
+                            last == null ? null : new MessagePreview(preview(last.getBody()), last.getSenderId().equals(me), last.getCreatedAt()),
                             conversation.getLastMessageAt(),
                             conversation.getCreatedAt());
                 })
                 .toList();
+    }
+
+    /** A message shortened for one row of the inbox: line breaks and runs of spaces become one space, and a long one ends in an ellipsis. */
+    static String preview(String body) {
+        String flat = body.replaceAll("\\s+", " ").strip();
+        if (flat.codePointCount(0, flat.length()) <= PREVIEW_LENGTH) {
+            return flat;
+        }
+        return flat.substring(0, flat.offsetByCodePoints(0, PREVIEW_LENGTH - 1)).stripTrailing() + "…";
     }
 }

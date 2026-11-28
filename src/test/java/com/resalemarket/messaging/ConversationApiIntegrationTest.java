@@ -37,6 +37,10 @@ class ConversationApiIntegrationTest extends ListingIntegrationSupportAccess {
         return JsonPath.read(body, "$.id");
     }
 
+    private void say(Member who, String conversationId, String text) throws Exception {
+        postJson(CONVERSATIONS + "/" + conversationId + "/messages", who, Map.of("body", text)).andExpect(status().isCreated());
+    }
+
     private UUID liveListing(Member seller, String title) throws Exception {
         return rowsFor(seller).insert(row().title(title));
     }
@@ -101,17 +105,21 @@ class ConversationApiIntegrationTest extends ListingIntegrationSupportAccess {
         Member seller = member("convseller3");
         Member buyer = member("convbuyer3");
         String conversationId = started(buyer, liveListing(seller, "Phone"));
+        say(buyer, conversationId, "Is it still available?");
 
         call(get(CONVERSATIONS), seller)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements").value(1))
                 .andExpect(jsonPath("$.content[0].id").value(conversationId))
                 .andExpect(jsonPath("$.content[0].myRole").value("SELLER"))
+                .andExpect(jsonPath("$.content[0].lastMessage.text").value("Is it still available?"))
+                .andExpect(jsonPath("$.content[0].lastMessage.mine").value(false))
                 .andExpect(jsonPath("$.content[0].otherMember.id").value(buyer.id()))
                 .andExpect(jsonPath("$.content[0].otherMember.displayName").value("convbuyer3"));
         call(get(CONVERSATIONS + "/" + conversationId), buyer)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.myRole").value("BUYER"))
+                .andExpect(jsonPath("$.lastMessage.mine").value(true))
                 .andExpect(jsonPath("$.otherMember.displayName").value("convseller3"))
                 // only a name is shared: never the other person's e-mail address
                 .andExpect(content -> assertThat(content.getResponse().getContentAsString()).doesNotContain("@"));
@@ -221,6 +229,9 @@ class ConversationApiIntegrationTest extends ListingIntegrationSupportAccess {
         String oldest = started(buyer, liveListing(seller, "First"));
         String newest = started(buyer, liveListing(seller, "Second"));
         String middle = started(buyer, liveListing(seller, "Third"));
+        for (String id : List.of(oldest, newest, middle)) {
+            say(buyer, id, "Hello");
+        }
         jdbc.update("UPDATE conversations SET last_message_at = now() - interval '3 days' WHERE id = ?::uuid", oldest);
         jdbc.update("UPDATE conversations SET last_message_at = now() - interval '1 hour' WHERE id = ?::uuid", newest);
         jdbc.update("UPDATE conversations SET last_message_at = now() - interval '1 day' WHERE id = ?::uuid", middle);
@@ -239,11 +250,29 @@ class ConversationApiIntegrationTest extends ListingIntegrationSupportAccess {
     }
 
     @Test
+    void aConversationNobodyHasWrittenInIsNotInAnInboxButCanStillBeOpened() throws Exception {
+        Member seller = member("convseller16");
+        Member buyer = member("convbuyer16");
+        String id = started(buyer, liveListing(seller, "Phone"));
+
+        // One click on "Message seller" must not put an empty entry into the seller's inbox (or leave one in the buyer's).
+        call(get(CONVERSATIONS), seller).andExpect(jsonPath("$.totalElements").value(0));
+        call(get(CONVERSATIONS), buyer).andExpect(jsonPath("$.totalElements").value(0));
+        call(get(CONVERSATIONS + "/" + id), buyer)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.lastMessage").value(nullValue()));
+
+        say(buyer, id, "Hello");
+        call(get(CONVERSATIONS), seller).andExpect(jsonPath("$.totalElements").value(1));
+        call(get(CONVERSATIONS), buyer).andExpect(jsonPath("$.totalElements").value(1));
+    }
+
+    @Test
     void aMemberSeesConversationsAsBuyerAndAsSellerInOneInbox() throws Exception {
         Member me = member("convme11");
         Member other = member("convother11");
-        started(me, liveListing(other, "Their ad"));
-        started(other, liveListing(me, "My ad"));
+        say(me, started(me, liveListing(other, "Their ad")), "Is it available?");
+        say(other, started(other, liveListing(me, "My ad")), "Is yours available?");
 
         call(get(CONVERSATIONS), me)
                 .andExpect(jsonPath("$.totalElements").value(2))
@@ -300,7 +329,7 @@ class ConversationApiIntegrationTest extends ListingIntegrationSupportAccess {
     void theInboxShowsTheOtherPersonAsANameAndNothingMore() throws Exception {
         Member seller = member("convseller15");
         Member buyer = member("convbuyer15");
-        started(buyer, liveListing(seller, "Phone"));
+        say(buyer, started(buyer, liveListing(seller, "Phone")), "Hello");
 
         call(get(CONVERSATIONS), seller)
                 .andExpect(jsonPath("$.content[0].otherMember.displayName").value("convbuyer15"))
