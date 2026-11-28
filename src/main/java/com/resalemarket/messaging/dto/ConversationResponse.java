@@ -14,6 +14,8 @@ public record ConversationResponse(
         @Schema(description = "The ad the conversation is about; null when it was taken down", nullable = true) ListingSummaryResponse listing,
         @Schema(description = "Whether the member is the one asking or the one selling") ConversationRole myRole,
         ParticipantResponse otherMember,
+        @Schema(description = "The last message; null while nobody has written (such a conversation is not in the inbox, but it can be opened by its id)",
+                nullable = true) MessagePreview lastMessage,
         @Schema(description = "When the last message was sent (the creation time while there is none); the inbox is ordered by it (UTC)")
                 Instant lastMessageAt,
         @Schema(description = "UTC") Instant createdAt) {

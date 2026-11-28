@@ -25,6 +25,7 @@ import com.resalemarket.listing.entity.PriceType;
 import com.resalemarket.messaging.dto.ConversationResponse;
 import com.resalemarket.messaging.dto.ConversationRole;
 import com.resalemarket.messaging.entity.Conversation;
+import com.resalemarket.messaging.entity.Message;
 import com.resalemarket.support.MutableClock;
 import com.resalemarket.user.UserService;
 import java.math.BigDecimal;
@@ -58,6 +59,9 @@ class ConversationServiceTest {
     private ConversationRepository repository;
 
     @Mock
+    private MessageRepository messageRepository;
+
+    @Mock
     private ListingService listingService;
 
     @Mock
@@ -75,8 +79,9 @@ class ConversationServiceTest {
     }
 
     private ConversationService serviceWithStartLimit(int attempts) {
-        MessagingProperties properties = new MessagingProperties(new MessagingProperties.RateLimits(new RateLimit(attempts, Duration.ofDays(1))));
-        return new ConversationService(repository, listingService, userService, new MessagingRateLimits(properties, clock));
+        MessagingProperties properties = new MessagingProperties(
+                2000, Duration.ofMinutes(1), new MessagingProperties.RateLimits(new RateLimit(attempts, Duration.ofDays(1)), null));
+        return new ConversationService(repository, messageRepository, listingService, userService, new MessagingRateLimits(properties, clock));
     }
 
     private static Conversation conversation(UUID id, UUID listing, UUID buyerId, UUID sellerId) {
@@ -88,6 +93,12 @@ class ConversationServiceTest {
         ReflectionTestUtils.setField(conversation, "createdAt", CREATED);
         ReflectionTestUtils.setField(conversation, "lastMessageAt", LAST);
         return conversation;
+    }
+
+    private static Message message(UUID conversationId, UUID sender, String body, Instant at) {
+        Message message = Message.of(conversationId, sender, body, at);
+        ReflectionTestUtils.setField(message, "id", UUID.randomUUID());
+        return message;
     }
 
     private static ListingSummaryResponse card(UUID id, ListingStatus status) {
@@ -209,6 +220,10 @@ class ConversationServiceTest {
         when(listingService.savedCards(List.of(soldListing, takenDownListing, myAd)))
                 .thenReturn(Map.of(soldListing, card(soldListing, ListingStatus.SOLD), myAd, card(myAd, ListingStatus.RESERVED)));
         when(userService.displayNames(List.of(seller, suspendedSeller, asker))).thenReturn(Map.of(seller, "Sita", asker, "Ram"));
+        when(messageRepository.findNewestOfEach(List.of(asBuyerOfSold.getId(), asBuyerOfTakenDown.getId(), asSeller.getId())))
+                .thenReturn(List.of(
+                        message(asBuyerOfSold.getId(), me, "Is it still\n  available?", LAST),
+                        message(asSeller.getId(), asker, "Can you do 80,000?", LAST.plusSeconds(60))));
 
         PageResponse<ConversationResponse> inbox = service.list(me, PageRequest.of(0, 20));
 
@@ -217,8 +232,11 @@ class ConversationServiceTest {
         assertThat(sold.myRole()).isEqualTo(ConversationRole.BUYER);
         assertThat(sold.listing().status()).isEqualTo(ListingStatus.SOLD);
         assertThat(sold.listingAvailable()).as("a sold ad keeps its card but is no longer for sale").isFalse();
+        assertThat(sold.lastMessage().text()).as("line breaks and runs of spaces become one space").isEqualTo("Is it still available?");
+        assertThat(sold.lastMessage().mine()).isTrue();
         ConversationResponse takenDown = inbox.content().get(1);
         assertThat(takenDown.listing()).as("an ad that was taken down has no card").isNull();
+        assertThat(takenDown.lastMessage()).as("nobody has written in it").isNull();
         assertThat(takenDown.listingAvailable()).isFalse();
         assertThat(takenDown.otherMember().displayName()).as("a suspended account has no name").isNull();
         assertThat(takenDown.otherMember().active()).isFalse();
@@ -227,8 +245,11 @@ class ConversationServiceTest {
         assertThat(mine.otherMember().id()).isEqualTo(asker);
         assertThat(mine.otherMember().displayName()).isEqualTo("Ram");
         assertThat(mine.listingAvailable()).as("a reserved ad is still live").isTrue();
+        assertThat(mine.lastMessage().mine()).isFalse();
+        assertThat(mine.lastMessage().sentAt()).isEqualTo(LAST.plusSeconds(60));
         verify(listingService, times(1)).savedCards(anyCollection());
         verify(userService, times(1)).displayNames(anyCollection());
+        verify(messageRepository, times(1)).findNewestOfEach(anyCollection());
     }
 
     @Test
@@ -280,5 +301,37 @@ class ConversationServiceTest {
         assertThatThrownBy(() -> service.get(outsider, UUID.fromString("00000000-0000-0000-0000-000000000000")))
                 .isInstanceOf(ResourceNotFoundException.class);
         verifyNoInteractions(listingService, userService);
+    }
+
+    // --- the preview of the last message ---------------------------------------------------------------------------------
+
+    @Test
+    void aShortMessageIsShownAsItIs() {
+        assertThat(ConversationService.preview("Is it still available?")).isEqualTo("Is it still available?");
+    }
+
+    @Test
+    void aLongMessageIsCutAtTheLimitAndEndsInAnEllipsis() {
+        String preview = ConversationService.preview("word ".repeat(100));
+
+        // 27 whole "word " groups and "word" make 139 characters; the ellipsis is the 140th, and no space is left before it
+        assertThat(preview).hasSize(ConversationService.PREVIEW_LENGTH).endsWith("word…");
+    }
+
+    @Test
+    void aMessageOfExactlyTheLimitIsNotCut() {
+        String text = "a".repeat(ConversationService.PREVIEW_LENGTH);
+
+        assertThat(ConversationService.preview(text)).isEqualTo(text);
+        assertThat(ConversationService.preview(text + "b")).endsWith("…").hasSize(ConversationService.PREVIEW_LENGTH);
+    }
+
+    @Test
+    void cuttingNeverSplitsACharacterMadeOfTwoUnits() {
+        String emoji = "\uD83D\uDE00";            // one character, two UTF-16 units
+        String preview = ConversationService.preview(emoji.repeat(200));
+
+        assertThat(preview).endsWith("…");
+        assertThat(preview.substring(0, preview.length() - 1)).isEqualTo(emoji.repeat(ConversationService.PREVIEW_LENGTH - 1));
     }
 }

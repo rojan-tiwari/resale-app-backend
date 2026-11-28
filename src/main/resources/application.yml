@@ -114,8 +114,11 @@ app:
     max-per-user: 500            # how many ads one member may save (also bounds GET /favorites/ids)
     # Saving and removing, per signed-in member: `app.favorite.rate-limits.write.attempts` / `.window` (default 300 per hour).
   messaging:
-    # Starting a conversation with a seller, per signed-in member: `app.messaging.rate-limits.start.attempts` / `.window`
-    # (default 20 per day). Only a conversation that is new counts; opening an existing one never does.
+    max-message-length: 2000     # characters per message (the column holds 2000, so a larger value is refused at start-up)
+    duplicate-window: 1m         # the same text twice in a row from the same person within this time is refused (0s = off)
+    # Per signed-in member: `app.messaging.rate-limits.start.attempts` / `.window` starting a conversation with a seller (default 20
+    # per day; only a conversation that is new counts, opening an existing one never does) and `rate-limits.send` sending messages
+    # in all conversations together (default 30 per 5 minutes).
   cors:
     # Comma-separated list of exact origins allowed to call the API from a browser.
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:4200}
