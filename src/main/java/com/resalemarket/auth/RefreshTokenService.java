@@ -106,6 +106,17 @@ public class RefreshTokenService {
                 repository.revokeActiveInFamily(token.getFamilyId(), clock.instant(), RevocationReason.LOGOUT));
     }
 
+    /**
+     * Ends every session of a person (sign out of all devices). Tokens that were already revoked keep their original
+     * reason, so the history of how each session ended is not rewritten.
+     *
+     * @return how many sessions were still open
+     */
+    @Transactional
+    public int revokeAll(UUID userId) {
+        return repository.revokeActiveForUser(userId, clock.instant(), RevocationReason.LOGOUT);
+    }
+
     /** A token that was already rotated came back: a harmless race if it is fresh, theft if it is not. */
     private Optional<Rotation> reused(RefreshToken rotated, Instant now) {
         boolean sessionStillOpen = repository.existsByFamilyIdAndRevokedAtIsNull(rotated.getFamilyId());

@@ -43,6 +43,7 @@ class LoginApiIntegrationTest {
     private static final String LOGIN = "/api/v1/auth/login";
     private static final String REFRESH = "/api/v1/auth/refresh";
     private static final String LOGOUT = "/api/v1/auth/logout";
+    private static final String LOGOUT_ALL = "/api/v1/auth/logout-all";
     private static final String WHOAMI = "/api/v1/test-support/security/whoami";
     private static final String DOMAIN = "login-itest.example";
     private static final String PASSWORD = "correct horse battery";
@@ -426,6 +427,107 @@ class LoginApiIntegrationTest {
         assertThat(rowOf(token).get("revoked_at")).as("a request without the header must not sign anybody out").isNull();
     }
 
+    // --- reuse detection touches only the stolen session -------------------------------------------------------------
+
+    @Test
+    void reuseDetectionEndsOnlyTheSessionThatWasReused() throws Exception {
+        String email = "reuse-scope@" + DOMAIN;
+        register(email);
+        String phone = refreshTokenOf(login(email, PASSWORD).andReturn());
+        String laptop = refreshTokenOf(login(email, PASSWORD).andReturn());
+
+        // The phone session is rotated once, and then its old token is replayed.
+        refresh(phone).andExpect(status().isOk());
+        refresh(phone).andExpect(status().isUnauthorized());
+
+        // The laptop is a different login session and carries on.
+        refresh(laptop).andExpect(status().isOk());
+        assertThat(jdbc.queryForObject(
+                        "SELECT count(*) FROM refresh_tokens rt JOIN users u ON u.id = rt.user_id WHERE u.email = ? AND rt.revoked_reason = 'REUSE_DETECTED'",
+                        Integer.class, email))
+                .as("only the phone session's newest token is revoked as reused")
+                .isEqualTo(1);
+    }
+
+    // --- logout of all devices ----------------------------------------------------------------------------------------
+
+    @Test
+    void logoutAllEndsEverySessionOfTheUserOnEveryDevice() throws Exception {
+        String email = "all-devices@" + DOMAIN;
+        register(email);
+        MvcResult phone = login(email, PASSWORD).andExpect(status().isOk()).andReturn();
+        MvcResult laptop = login(email, PASSWORD).andExpect(status().isOk()).andReturn();
+        MvcResult tablet = login(email, PASSWORD).andExpect(status().isOk()).andReturn();
+
+        MvcResult result = logoutAll(accessTokenOf(laptop)).andExpect(status().isNoContent()).andReturn();
+
+        assertThat(result.getResponse().getHeader(HttpHeaders.SET_COOKIE))
+                .startsWith(COOKIE + "=;")
+                .contains("Max-Age=0", "Path=/api/v1/auth", "HttpOnly");
+        for (MvcResult device : List.of(phone, laptop, tablet)) {
+            refresh(refreshTokenOf(device)).andExpect(status().isUnauthorized());
+        }
+        assertThat(sessionCount(email)).isEqualTo(3);
+        assertThat(activeSessionCount(email)).isZero();
+        assertThat(rowOf(refreshTokenOf(phone)).get("revoked_reason")).isEqualTo("LOGOUT");
+    }
+
+    @Test
+    void logoutAllLeavesOtherPeoplesSessionsAlone() throws Exception {
+        register("mine@" + DOMAIN);
+        register("theirs@" + DOMAIN);
+        MvcResult mine = login("mine@" + DOMAIN, PASSWORD).andReturn();
+        String theirs = refreshTokenOf(login("theirs@" + DOMAIN, PASSWORD).andReturn());
+
+        logoutAll(accessTokenOf(mine)).andExpect(status().isNoContent());
+
+        refresh(theirs).andExpect(status().isOk());
+        assertThat(activeSessionCount("mine@" + DOMAIN)).isZero();
+    }
+
+    @Test
+    void logoutAllDoesNotRewriteHowEarlierSessionsEnded() throws Exception {
+        String email = "history@" + DOMAIN;
+        register(email);
+        MvcResult signedIn = login(email, PASSWORD).andReturn();
+        String first = refreshTokenOf(signedIn);
+        String second = refreshTokenOf(refresh(first).andExpect(status().isOk()).andReturn());
+
+        logoutAll(accessTokenOf(signedIn)).andExpect(status().isNoContent());
+
+        assertThat(rowOf(first).get("revoked_reason")).as("already rotated before").isEqualTo("ROTATED");
+        assertThat(rowOf(second).get("revoked_reason")).isEqualTo("LOGOUT");
+    }
+
+    @Test
+    void logoutAllNeedsAnAccessToken() throws Exception {
+        String email = "needs-token@" + DOMAIN;
+        register(email);
+        String refreshToken = refreshTokenOf(login(email, PASSWORD).andReturn());
+
+        mockMvc.perform(post(LOGOUT_ALL))
+                .andExpect(status().isUnauthorized())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+        mockMvc.perform(post(LOGOUT_ALL).header(HttpHeaders.AUTHORIZATION, "Bearer not-a-token"))
+                .andExpect(status().isUnauthorized());
+        // The refresh cookie alone is not enough for this endpoint: it is a bigger step than signing out one device.
+        mockMvc.perform(post(LOGOUT_ALL).cookie(new Cookie(COOKIE, refreshToken)).header("X-Requested-With", "XMLHttpRequest"))
+                .andExpect(status().isUnauthorized());
+
+        assertThat(activeSessionCount(email)).as("nothing was revoked by the refused calls").isEqualTo(1);
+    }
+
+    @Test
+    void logoutAllIsSafeToRepeatAndNeedsNoSessionToBeOpen() throws Exception {
+        String email = "repeat@" + DOMAIN;
+        register(email);
+        String accessToken = accessTokenOf(login(email, PASSWORD).andReturn());
+
+        logoutAll(accessToken).andExpect(status().isNoContent());
+        logoutAll(accessToken).andExpect(status().isNoContent());
+    }
+
     // --- browser access -----------------------------------------------------------------------------------------------
 
     @Test
@@ -474,6 +576,10 @@ class LoginApiIntegrationTest {
         return mockMvc.perform(post(LOGOUT).cookie(new Cookie(COOKIE, refreshToken)).header("X-Requested-With", "XMLHttpRequest"));
     }
 
+    private ResultActions logoutAll(String accessToken) throws Exception {
+        return mockMvc.perform(post(LOGOUT_ALL).header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken));
+    }
+
     private static String accessTokenOf(MvcResult result) throws Exception {
         return JsonPath.read(result.getResponse().getContentAsString(), "$.accessToken");
     }
@@ -487,6 +593,12 @@ class LoginApiIntegrationTest {
 
     private Map<String, Object> rowOf(String refreshToken) {
         return jdbc.queryForMap("SELECT * FROM refresh_tokens WHERE token_hash = ?", RefreshTokenService.hash(refreshToken));
+    }
+
+    private int activeSessionCount(String email) {
+        return jdbc.queryForObject(
+                "SELECT count(*) FROM refresh_tokens rt JOIN users u ON u.id = rt.user_id WHERE u.email = ? AND rt.revoked_at IS NULL",
+                Integer.class, email);
     }
 
     private int sessionCount(String email) {

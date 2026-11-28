@@ -243,6 +243,16 @@ class RefreshTokenServiceTest {
     }
 
     @Test
+    void signingOutOfAllDevicesRevokesEveryOpenTokenOfTheUser() {
+        when(repository.revokeActiveForUser(USER, START, RevocationReason.LOGOUT)).thenReturn(3);
+
+        assertThat(service.revokeAll(USER)).isEqualTo(3);
+
+        verify(repository).revokeActiveForUser(USER, START, RevocationReason.LOGOUT);
+        verify(repository, never()).revokeActiveInFamily(any(), any(), any());
+    }
+
+    @Test
     void hashesAreStableLowerCaseHex() {
         assertThat(RefreshTokenService.hash("abc"))
                 .isEqualTo("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
