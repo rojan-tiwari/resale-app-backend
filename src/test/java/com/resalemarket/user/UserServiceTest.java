@@ -9,12 +9,15 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.resalemarket.common.exception.ConflictException;
+import com.resalemarket.support.MutableClock;
 import com.resalemarket.user.dto.NewUser;
 import com.resalemarket.user.dto.UserResponse;
 import com.resalemarket.user.entity.Role;
 import com.resalemarket.user.entity.User;
 import com.resalemarket.user.entity.UserProfile;
 import com.resalemarket.user.entity.UserStatus;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -23,6 +26,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 @ExtendWith(MockitoExtension.class)
 class UserServiceTest {
@@ -36,11 +40,14 @@ class UserServiceTest {
     @Mock
     private RoleRepository roleRepository;
 
+    private final MutableClock clock = new MutableClock(Instant.parse("2026-11-01T10:00:00Z"));
+
     private UserService service;
 
     @BeforeEach
     void setUp() {
-        service = new UserService(userRepository, profileRepository, roleRepository, new UserMapperImpl());
+        service = new UserService(
+                userRepository, profileRepository, roleRepository, new UserMapperImpl(), clock);
     }
 
     @Test
@@ -181,5 +188,45 @@ class UserServiceTest {
         assertThatThrownBy(() -> service.findActiveById(id))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("has no profile");
+    }
+
+    // --- wrong passwords and lock-out -----------------------------------------------------------------------------
+
+    @Test
+    void wrongPasswordsAreCountedAndTheAccountIsLockedAtTheLimit() {
+        User user = account(UUID.randomUUID(), UserStatus.ACTIVE);
+        when(userRepository.findWithLockByEmail("sita@example.com")).thenReturn(Optional.of(user));
+
+        service.recordFailedLogin("Sita@Example.com ", 3, Duration.ofMinutes(15));
+        service.recordFailedLogin("sita@example.com", 3, Duration.ofMinutes(15));
+        assertThat(user.getFailedLoginAttempts()).isEqualTo(2);
+        assertThat(user.isLockedAt(clock.instant())).isFalse();
+
+        service.recordFailedLogin("sita@example.com", 3, Duration.ofMinutes(15));
+        assertThat(user.isLockedAt(clock.instant())).isTrue();
+        assertThat(user.getLockedUntil()).isEqualTo(clock.instant().plus(Duration.ofMinutes(15)));
+    }
+
+    @Test
+    void aWrongPasswordForAnUnknownAddressIsIgnored() {
+        when(userRepository.findWithLockByEmail("nobody@example.com")).thenReturn(Optional.empty());
+
+        service.recordFailedLogin("nobody@example.com", 3, Duration.ofMinutes(15));
+
+        verify(userRepository).findWithLockByEmail("nobody@example.com");
+        verifyNoInteractions(profileRepository);
+    }
+
+    @Test
+    void aSuccessfulSignInForgetsWrongPasswordsAndRecordsTheTime() {
+        UUID id = UUID.randomUUID();
+        User user = account(id, UserStatus.ACTIVE);
+        user.registerFailedLogin(clock.instant(), 5, Duration.ofMinutes(15));
+        when(userRepository.findWithLockById(id)).thenReturn(Optional.of(user));
+
+        service.recordSuccessfulLogin(id);
+
+        assertThat(user.getFailedLoginAttempts()).isZero();
+        assertThat(user.getLastLoginAt()).isEqualTo(clock.instant());
     }
 }

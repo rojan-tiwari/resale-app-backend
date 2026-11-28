@@ -3,6 +3,7 @@ package com.resalemarket.auth;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -14,6 +15,7 @@ import com.resalemarket.common.exception.UnauthorizedException;
 import com.resalemarket.user.UserService;
 import com.resalemarket.user.dto.NewUser;
 import com.resalemarket.user.dto.UserResponse;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -61,7 +63,14 @@ class AuthServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new AuthService(userService, passwordEncoder, authenticationManager, accessTokens, refreshTokens);
+        AuthProperties properties = new AuthProperties(
+                Duration.ofDays(14),
+                Duration.ofSeconds(10),
+                new AuthProperties.RefreshCookie("refresh_token", true, "Strict", "/api/v1/auth"),
+                3,
+                Duration.ofMinutes(20),
+                new AuthProperties.RateLimits(null, null));
+        service = new AuthService(userService, passwordEncoder, authenticationManager, accessTokens, refreshTokens, properties);
     }
 
     private Authentication authenticated() {
@@ -121,7 +130,57 @@ class AuthServiceTest {
                 .isInstanceOf(UnauthorizedException.class)
                 .hasMessage("Invalid email or password.");
 
-        verifyNoInteractions(accessTokens, refreshTokens, userService);
+        verifyNoInteractions(accessTokens, refreshTokens);
+        verify(userService, never()).recordSuccessfulLogin(any());
+    }
+
+    @Test
+    void aWrongPasswordIsCountedAgainstTheAccountWithTheConfiguredLimits() {
+        when(authenticationManager.authenticate(any())).thenThrow(new BadCredentialsException("bad"));
+
+        assertThatThrownBy(() -> service.login(new LoginRequest("sita@example.com", "wrong"), CLIENT))
+                .isInstanceOf(UnauthorizedException.class);
+
+        verify(userService).recordFailedLogin("sita@example.com", 3, Duration.ofMinutes(20));
+    }
+
+    @Test
+    void anUnknownAddressIsAnsweredLikeAWrongPassword() {
+        // The user module ignores unknown addresses, so the service has nothing that tells the two cases apart.
+        when(authenticationManager.authenticate(any())).thenThrow(new BadCredentialsException("bad"));
+
+        assertThatThrownBy(() -> service.login(new LoginRequest("nobody@example.com", "whatever"), CLIENT))
+                .isInstanceOf(UnauthorizedException.class)
+                .hasMessage("Invalid email or password.");
+
+        verify(userService).recordFailedLogin("nobody@example.com", 3, Duration.ofMinutes(20));
+    }
+
+    @Test
+    void aSuccessfulLoginResetsTheCountAndRecordsTheTime() {
+        when(authenticationManager.authenticate(any())).thenReturn(authenticated());
+        when(userService.findActiveByEmail("sita@example.com")).thenReturn(Optional.of(user));
+        when(refreshTokens.start(USER_ID, CLIENT)).thenReturn("refresh-token");
+        when(accessTokens.issue(user)).thenReturn(new AccessTokenService.AccessToken("access-token", 900));
+
+        service.login(new LoginRequest("sita@example.com", "correct horse"), CLIENT);
+
+        verify(userService).recordSuccessfulLogin(USER_ID);
+        verify(userService, never()).recordFailedLogin(any(), org.mockito.ArgumentMatchers.anyInt(), any());
+    }
+
+    @Test
+    void aSuspendedOrLockedAccountDoesNotCountTheCorrectPasswordAsAFailure() {
+        when(authenticationManager.authenticate(any()))
+                .thenThrow(new DisabledException("disabled"))
+                .thenThrow(new LockedException("locked"));
+
+        assertThatThrownBy(() -> service.login(new LoginRequest("sita@example.com", "correct horse"), CLIENT))
+                .isInstanceOf(ForbiddenException.class);
+        assertThatThrownBy(() -> service.login(new LoginRequest("sita@example.com", "correct horse"), CLIENT))
+                .isInstanceOf(ForbiddenException.class);
+
+        verifyNoInteractions(userService);
     }
 
     @Test

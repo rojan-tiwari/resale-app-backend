@@ -48,6 +48,9 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         if (ex.getStatus() == HttpStatus.UNAUTHORIZED) {
             response.header(HttpHeaders.WWW_AUTHENTICATE, "Bearer");   // a 401 must say how to authenticate (RFC 9110)
         }
+        if (ex instanceof TooManyRequestsException tooMany) {
+            response.header(HttpHeaders.RETRY_AFTER, Long.toString(tooMany.retryAfterSeconds()));
+        }
         return response.body(problem);
     }
 

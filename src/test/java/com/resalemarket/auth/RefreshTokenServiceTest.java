@@ -43,7 +43,10 @@ class RefreshTokenServiceTest {
         AuthProperties properties = new AuthProperties(
                 Duration.ofDays(14),
                 Duration.ofSeconds(10),
-                new AuthProperties.RefreshCookie("refresh_token", true, "Strict", "/api/v1/auth"));
+                new AuthProperties.RefreshCookie("refresh_token", true, "Strict", "/api/v1/auth"),
+                5,
+                Duration.ofMinutes(15),
+                new AuthProperties.RateLimits(null, null));
         service = new RefreshTokenService(repository, properties, clock);
     }
 

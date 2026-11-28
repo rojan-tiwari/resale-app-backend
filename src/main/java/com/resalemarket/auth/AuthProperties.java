@@ -1,11 +1,12 @@
 package com.resalemarket.auth;
 
+import com.resalemarket.common.ratelimit.RateLimit;
 import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 
 /**
- * Refresh-token settings, bound from {@code app.auth.*}. (The access token has its own settings in
+ * Authentication settings, bound from {@code app.auth.*}. (The access token has its own settings in
  * {@link com.resalemarket.common.config.JwtProperties}.)
  *
  * @param refreshTokenTtl     how long a refresh token stays valid; every rotation starts a new period, so a person who
@@ -14,12 +15,18 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  *                            (two browser tabs restoring the session at the same moment) instead of as theft; {@code 0s}
  *                            makes every reuse count as theft
  * @param refreshCookie       how the refresh token travels to the browser
+ * @param maxFailedLogins     this many wrong passwords in a row lock the account
+ * @param lockoutDuration     how long a locked account refuses to sign in (a reset of the password lifts the lock at once)
+ * @param rateLimits          how often the public authentication endpoints may be called
  */
 @ConfigurationProperties(prefix = "app.auth")
 public record AuthProperties(
         @DefaultValue("14d") Duration refreshTokenTtl,
         @DefaultValue("10s") Duration refreshReuseGrace,
-        @DefaultValue RefreshCookie refreshCookie) {
+        @DefaultValue RefreshCookie refreshCookie,
+        @DefaultValue("5") int maxFailedLogins,
+        @DefaultValue("15m") Duration lockoutDuration,
+        @DefaultValue RateLimits rateLimits) {
 
     public AuthProperties {
         if (refreshTokenTtl.isZero() || refreshTokenTtl.isNegative()) {
@@ -27,6 +34,12 @@ public record AuthProperties(
         }
         if (refreshReuseGrace.isNegative()) {
             throw new IllegalArgumentException("app.auth.refresh-reuse-grace must not be negative.");
+        }
+        if (maxFailedLogins < 1) {
+            throw new IllegalArgumentException("app.auth.max-failed-logins must be at least 1.");
+        }
+        if (lockoutDuration.isZero() || lockoutDuration.isNegative()) {
+            throw new IllegalArgumentException("app.auth.lockout-duration must be positive.");
         }
     }
 
@@ -41,5 +54,23 @@ public record AuthProperties(
             @DefaultValue("true") boolean secure,
             @DefaultValue("Strict") String sameSite,
             @DefaultValue("/api/v1/auth") String path) {
+    }
+
+    /**
+     * One rule per protected action; each is counted separately and per caller (see {@link AuthRateLimits} for what the
+     * caller is). The defaults leave room for many people behind one address, which is normal for mobile and shared
+     * connections in Nepal; tighten them in {@code app.auth.rate-limits.*} when abuse shows up.
+     *
+     * @param login                a person signing in, per IP address (the per-account guard is the lock-out)
+     * @param register             creating accounts, per IP address
+     */
+    public record RateLimits(
+            RateLimit login,
+            RateLimit register) {
+
+        public RateLimits {
+            login = login != null ? login : new RateLimit(20, Duration.ofMinutes(10));
+            register = register != null ? register : new RateLimit(10, Duration.ofHours(1));
+        }
     }
 }
