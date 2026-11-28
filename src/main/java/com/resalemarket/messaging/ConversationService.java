@@ -114,7 +114,7 @@ public class ConversationService {
                 .orElseThrow(() -> new ResourceNotFoundException("Conversation", id));
     }
 
-    /** One batch of lookups for the listings, one for the people and one for the last messages, however many conversations (no query per row). */
+    /** One batch of lookups for the listings, one for the people, one for the last messages and one for the unread counts, however many conversations (no query per row). */
     private List<ConversationResponse> toResponses(UUID me, List<Conversation> conversations) {
         if (conversations.isEmpty()) {
             return List.of();
@@ -122,8 +122,11 @@ public class ConversationService {
         Map<UUID, ListingSummaryResponse> cards =
                 listingService.savedCards(conversations.stream().map(Conversation::getListingId).distinct().toList());
         Map<UUID, String> names = userService.displayNames(conversations.stream().map(c -> c.otherParty(me)).distinct().toList());
-        Map<UUID, Message> newest = messageRepository.findNewestOfEach(conversations.stream().map(Conversation::getId).toList()).stream()
+        List<UUID> ids = conversations.stream().map(Conversation::getId).toList();
+        Map<UUID, Message> newest = messageRepository.findNewestOfEach(ids).stream()
                 .collect(Collectors.toMap(Message::getConversationId, Function.identity()));
+        Map<UUID, Long> unread = messageRepository.countUnreadIn(ids, me).stream()
+                .collect(Collectors.toMap(MessageRepository.UnreadInConversation::getConversationId, MessageRepository.UnreadInConversation::getUnread));
         return conversations.stream()
                 .map(conversation -> {
                     ListingSummaryResponse card = cards.get(conversation.getListingId());
@@ -138,6 +141,7 @@ public class ConversationService {
                             conversation.getBuyerId().equals(me) ? ConversationRole.BUYER : ConversationRole.SELLER,
                             new ParticipantResponse(otherId, name, name != null),
                             last == null ? null : new MessagePreview(preview(last.getBody()), last.getSenderId().equals(me), last.getCreatedAt()),
+                            unread.getOrDefault(conversation.getId(), 0L),
                             conversation.getLastMessageAt(),
                             conversation.getCreatedAt());
                 })

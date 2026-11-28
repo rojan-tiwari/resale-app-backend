@@ -4,6 +4,7 @@ import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -72,12 +73,16 @@ class SecurityBaselineIntegrationTest {
     @Test
     void conversationsAreNeverPublic() throws Exception {
         String conversation = "0b8f0a54-6a52-4d3c-9f43-0a3d4a8d6c11";
-        for (String path : new String[] {"/api/v1/conversations", "/api/v1/conversations/" + conversation}) {
+        for (String path : new String[] {
+                "/api/v1/conversations", "/api/v1/conversations/" + conversation, "/api/v1/conversations/unread-count",
+                "/api/v1/conversations/" + conversation + "/messages"}) {
             mockMvc.perform(get(path))
                     .andExpect(status().isUnauthorized())
                     .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
         }
         mockMvc.perform(post("/api/v1/conversations")).andExpect(status().isUnauthorized());
+        mockMvc.perform(post("/api/v1/conversations/" + conversation + "/messages")).andExpect(status().isUnauthorized());
+        mockMvc.perform(patch("/api/v1/conversations/" + conversation + "/read")).andExpect(status().isUnauthorized());
     }
 
     @Test

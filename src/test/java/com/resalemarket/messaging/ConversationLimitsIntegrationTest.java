@@ -2,6 +2,8 @@ package com.resalemarket.messaging;
 
 import static com.resalemarket.listing.ListingRows.row;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -19,6 +21,7 @@ import org.springframework.test.context.TestPropertySource;
 @TestPropertySource(properties = {
         "app.messaging.rate-limits.start.attempts=2", "app.messaging.rate-limits.start.window=1h",
         "app.messaging.rate-limits.send.attempts=3", "app.messaging.rate-limits.send.window=1h",
+        "app.messaging.rate-limits.poll.attempts=4", "app.messaging.rate-limits.poll.window=1h",
         "app.messaging.max-message-length=20"})
 class ConversationLimitsIntegrationTest extends ListingIntegrationSupportAccess {
 
@@ -82,5 +85,27 @@ class ConversationLimitsIntegrationTest extends ListingIntegrationSupportAccess 
         postJson(messages, seller, Map.of("body", "y".repeat(21)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors[0].message").value("A message can be at most 20 characters long."));
+    }
+
+    @Test
+    void theCallsAnOpenChatRepeatsAreLimitedPerMemberButGenerously() throws Exception {
+        Member seller = member("limitpollseller");
+        Member buyer = member("limitpollbuyer");
+        String id = start(buyer, rowsFor(seller).insert(row().title("listing a")));
+
+        for (int i = 0; i < 2; i++) {
+            call(get(CONVERSATIONS + "/unread-count"), buyer).andExpect(status().isOk());
+            call(get(CONVERSATIONS + "/" + id + "/messages"), buyer).andExpect(status().isOk());
+        }
+        // four calls counted together, across the polled endpoints: the fifth is refused before any work is done
+        call(get(CONVERSATIONS + "/unread-count"), buyer)
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().exists("Retry-After"))
+                .andExpect(jsonPath("$.code").value("TOO_MANY_REQUESTS"));
+        call(patch(CONVERSATIONS + "/" + id + "/read"), buyer).andExpect(status().isTooManyRequests());
+        call(get(CONVERSATIONS + "/" + id + "/messages"), buyer).andExpect(status().isTooManyRequests());
+        // the other person is counted separately, and the inbox is not one of the polled calls
+        call(get(CONVERSATIONS + "/unread-count"), seller).andExpect(status().isOk());
+        call(get(CONVERSATIONS), buyer).andExpect(status().isOk());
     }
 }

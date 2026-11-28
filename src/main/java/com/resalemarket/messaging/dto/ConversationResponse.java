@@ -16,6 +16,7 @@ public record ConversationResponse(
         ParticipantResponse otherMember,
         @Schema(description = "The last message; null while nobody has written (such a conversation is not in the inbox, but it can be opened by its id)",
                 nullable = true) MessagePreview lastMessage,
+        @Schema(description = "How many messages the other person sent that the member has not read yet") long unreadCount,
         @Schema(description = "When the last message was sent (the creation time while there is none); the inbox is ordered by it (UTC)")
                 Instant lastMessageAt,
         @Schema(description = "UTC") Instant createdAt) {

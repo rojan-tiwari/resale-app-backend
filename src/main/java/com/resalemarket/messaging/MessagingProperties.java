@@ -27,18 +27,21 @@ public record MessagingProperties(
         if (duplicateWindow == null || duplicateWindow.isNegative()) {
             throw new IllegalArgumentException("app.messaging.duplicate-window must not be negative.");
         }
-        rateLimits = rateLimits != null ? rateLimits : new RateLimits(null, null);   // @DefaultValue only applies when binding from configuration
+        rateLimits = rateLimits != null ? rateLimits : new RateLimits(null, null, null);   // @DefaultValue only applies when binding from configuration
     }
 
     /**
      * @param start starting a conversation with a seller who has not heard from the member about that ad yet (counted per member)
      * @param send  sending messages, in all conversations together (counted per member)
+     * @param poll  the calls an open chat and the header repeat every few seconds: reading messages, the unread count, marking as read
+     *              (counted per member, all tabs together)
      */
-    public record RateLimits(RateLimit start, RateLimit send) {
+    public record RateLimits(RateLimit start, RateLimit send, RateLimit poll) {
 
         public RateLimits {
             start = start != null ? start : new RateLimit(20, Duration.ofDays(1));
             send = send != null ? send : new RateLimit(30, Duration.ofMinutes(5));
+            poll = poll != null ? poll : new RateLimit(240, Duration.ofMinutes(1));
         }
     }
 }

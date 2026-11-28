@@ -118,7 +118,8 @@ app:
     duplicate-window: 1m         # the same text twice in a row from the same person within this time is refused (0s = off)
     # Per signed-in member: `app.messaging.rate-limits.start.attempts` / `.window` starting a conversation with a seller (default 20
     # per day; only a conversation that is new counts, opening an existing one never does) and `rate-limits.send` sending messages
-    # in all conversations together (default 30 per 5 minutes).
+    # in all conversations together (default 30 per 5 minutes). `rate-limits.poll` covers the calls an open chat repeats every few seconds
+    # (reading messages, the unread count, marking as read; default 240 per minute per member, all tabs together).
   cors:
     # Comma-separated list of exact origins allowed to call the API from a browser.
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:4200}
