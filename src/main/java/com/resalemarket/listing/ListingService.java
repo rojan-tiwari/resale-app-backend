@@ -191,11 +191,22 @@ public class ListingService {
      * @throws ResourceNotFoundException if it is not (the same answer as for an unknown id)
      */
     public void requireLive(UUID id) {
+        requireLiveSeller(id);
+    }
+
+    /**
+     * Like {@link #requireLive}, and says who is selling it: what a buyer who wants to write to the seller needs.
+     *
+     * @return the id of the seller
+     * @throws ResourceNotFoundException if the listing is not live or its seller is not in good standing (the same answer as for an unknown id)
+     */
+    public UUID requireLiveSeller(UUID id) {
         Listing listing = repository.findById(id).filter(found -> found.getStatus().isPublic())
                 .orElseThrow(() -> new ResourceNotFoundException("Listing", id));
         if (!userService.isActive(listing.getSellerId())) {
             throw new ResourceNotFoundException("Listing", id);
         }
+        return listing.getSellerId();
     }
 
     /**

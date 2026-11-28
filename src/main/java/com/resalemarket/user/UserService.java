@@ -18,8 +18,10 @@ import java.time.Clock;
 import java.time.Duration;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -148,6 +150,20 @@ public class UserService {
             String phone = profile.isShowPhone() ? profile.getPhone() : null;
             return new PublicUserResponse(user.getId(), profile.getDisplayName(), profile.getBio(), user.getCreatedAt(), location, phone);
         });
+    }
+
+    /**
+     * The display names of the accounts in good standing among {@code ids}, keyed by id; a suspended, deleted or unknown id is
+     * left out, so a name never outlives the account's standing and the caller shows a neutral label instead. Two queries, however
+     * many ids: this is what a list of conversations needs, where asking for each person in turn would be one query per row.
+     */
+    public Map<UUID, String> displayNames(Collection<UUID> ids) {
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        List<UUID> inGoodStanding = userRepository.findAllById(ids).stream().filter(UserService::isActive).map(User::getId).toList();
+        return profileRepository.findAllById(inGoodStanding).stream()
+                .collect(Collectors.toMap(UserProfile::getId, UserProfile::getDisplayName));
     }
 
     /** Whether the account exists and may sign in (not suspended or deleted): one row, no profile, for callers that only need to know. */
