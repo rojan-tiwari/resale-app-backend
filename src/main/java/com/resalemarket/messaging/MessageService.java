@@ -6,6 +6,7 @@ import com.resalemarket.common.exception.FieldValidationException;
 import com.resalemarket.common.exception.ResourceNotFoundException;
 import com.resalemarket.messaging.dto.MessageListResponse;
 import com.resalemarket.messaging.dto.MessageResponse;
+import com.resalemarket.messaging.dto.UnreadCountsResponse;
 import com.resalemarket.messaging.entity.Conversation;
 import com.resalemarket.messaging.entity.Message;
 import com.resalemarket.user.UserService;
@@ -112,6 +113,27 @@ public class MessageService {
             Collections.reverse(run);                          // fetched newest first, shown oldest first
         }
         return new MessageListResponse(run.stream().map(message -> toResponse(message, userId)).toList(), hasMore);
+    }
+
+    /**
+     * Marks what the other person sent in the conversation as read by the member, which is what opening it means. Doing it again is
+     * harmless (nothing is left to mark). The member's own messages are not touched: they are read when the other person opens it.
+     *
+     * @return what the member still has not read in all their conversations, so the badge can be updated without another call
+     * @throws ResourceNotFoundException if there is no such conversation, or the member is not one of its two people
+     */
+    @Transactional
+    public UnreadCountsResponse markRead(UUID userId, UUID conversationId) {
+        userService.requireActive(userId);
+        conversationService.requireParticipant(userId, conversationId);
+        messages.markRead(conversationId, userId, clock.instant());
+        return unreadCounts(userId);
+    }
+
+    /** What the member has not read, over all their conversations: the number on the Messages icon in the header. */
+    public UnreadCountsResponse unreadCounts(UUID userId) {
+        MessageRepository.UnreadTotals totals = messages.unreadTotals(userId);
+        return new UnreadCountsResponse(totals.getMessages(), totals.getConversations());
     }
 
     private Message requireMessage(UUID conversationId, UUID messageId) {

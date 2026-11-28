@@ -80,7 +80,7 @@ class ConversationServiceTest {
 
     private ConversationService serviceWithStartLimit(int attempts) {
         MessagingProperties properties = new MessagingProperties(
-                2000, Duration.ofMinutes(1), new MessagingProperties.RateLimits(new RateLimit(attempts, Duration.ofDays(1)), null));
+                2000, Duration.ofMinutes(1), new MessagingProperties.RateLimits(new RateLimit(attempts, Duration.ofDays(1)), null, null));
         return new ConversationService(repository, messageRepository, listingService, userService, new MessagingRateLimits(properties, clock));
     }
 
@@ -99,6 +99,20 @@ class ConversationServiceTest {
         Message message = Message.of(conversationId, sender, body, at);
         ReflectionTestUtils.setField(message, "id", UUID.randomUUID());
         return message;
+    }
+
+    private static MessageRepository.UnreadInConversation unread(UUID conversationId, long count) {
+        return new MessageRepository.UnreadInConversation() {
+            @Override
+            public UUID getConversationId() {
+                return conversationId;
+            }
+
+            @Override
+            public long getUnread() {
+                return count;
+            }
+        };
     }
 
     private static ListingSummaryResponse card(UUID id, ListingStatus status) {
@@ -225,6 +239,9 @@ class ConversationServiceTest {
                         message(asBuyerOfSold.getId(), me, "Is it still\n  available?", LAST),
                         message(asSeller.getId(), asker, "Can you do 80,000?", LAST.plusSeconds(60))));
 
+        when(messageRepository.countUnreadIn(List.of(asBuyerOfSold.getId(), asBuyerOfTakenDown.getId(), asSeller.getId()), me))
+                .thenReturn(List.of(unread(asSeller.getId(), 2)));
+
         PageResponse<ConversationResponse> inbox = service.list(me, PageRequest.of(0, 20));
 
         assertThat(inbox.totalElements()).isEqualTo(3);
@@ -245,11 +262,14 @@ class ConversationServiceTest {
         assertThat(mine.otherMember().id()).isEqualTo(asker);
         assertThat(mine.otherMember().displayName()).isEqualTo("Ram");
         assertThat(mine.listingAvailable()).as("a reserved ad is still live").isTrue();
+        assertThat(mine.unreadCount()).as("two messages from the asker that I have not read").isEqualTo(2);
+        assertThat(sold.unreadCount()).isZero();
         assertThat(mine.lastMessage().mine()).isFalse();
         assertThat(mine.lastMessage().sentAt()).isEqualTo(LAST.plusSeconds(60));
         verify(listingService, times(1)).savedCards(anyCollection());
         verify(userService, times(1)).displayNames(anyCollection());
         verify(messageRepository, times(1)).findNewestOfEach(anyCollection());
+        verify(messageRepository, times(1)).countUnreadIn(anyCollection(), any());
     }
 
     @Test

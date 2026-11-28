@@ -69,7 +69,7 @@ class MessageServiceTest {
     }
 
     private MessageService serviceWith(int maxLength, Duration duplicateWindow) {
-        MessagingProperties properties = new MessagingProperties(maxLength, duplicateWindow, new MessagingProperties.RateLimits(null, null));
+        MessagingProperties properties = new MessagingProperties(maxLength, duplicateWindow, new MessagingProperties.RateLimits(null, null, null));
         return new MessageService(messages, conversations, conversationService, userService, properties, clock);
     }
 
@@ -384,5 +384,71 @@ class MessageServiceTest {
         ArgumentCaptor<Pageable> limit = ArgumentCaptor.forClass(Pageable.class);
         verify(messages, org.mockito.Mockito.times(3)).findLatest(eq(conversationId), limit.capture());
         assertThat(limit.getAllValues()).extracting(Pageable::getPageSize).containsExactly(2, 2, MessageService.MAX_SIZE + 1);
+    }
+
+    // --- what has not been read ----------------------------------------------------------------------------------------
+
+    private static MessageRepository.UnreadTotals totals(long messages, long conversations) {
+        return new MessageRepository.UnreadTotals() {
+            @Override
+            public long getMessages() {
+                return messages;
+            }
+
+            @Override
+            public long getConversations() {
+                return conversations;
+            }
+        };
+    }
+
+    @Test
+    void openingAConversationMarksWhatTheOtherPersonSentAndAnswersWithWhatIsStillUnread() {
+        when(conversationService.requireParticipant(buyer, conversationId)).thenReturn(conversation);
+        when(messages.markRead(conversationId, buyer, NOW)).thenReturn(2);
+        when(messages.unreadTotals(buyer)).thenReturn(totals(3, 1));
+
+        var left = service.markRead(buyer, conversationId);
+
+        assertThat(left.unreadMessages()).isEqualTo(3);
+        assertThat(left.unreadConversations()).isEqualTo(1);
+        verify(userService).requireActive(buyer);
+    }
+
+    @Test
+    void markingAsReadAgainIsHarmless() {
+        when(conversationService.requireParticipant(buyer, conversationId)).thenReturn(conversation);
+        when(messages.markRead(conversationId, buyer, NOW)).thenReturn(0);
+        when(messages.unreadTotals(buyer)).thenReturn(totals(0, 0));
+
+        assertThat(service.markRead(buyer, conversationId).unreadMessages()).isZero();
+    }
+
+    @Test
+    void anybodyWhoIsNotInTheConversationCannotMarkAnythingAsRead() {
+        UUID outsider = UUID.randomUUID();
+        when(conversationService.requireParticipant(outsider, conversationId))
+                .thenThrow(new ResourceNotFoundException("Conversation", conversationId));
+
+        assertThatThrownBy(() -> service.markRead(outsider, conversationId)).isInstanceOf(ResourceNotFoundException.class);
+        verify(messages, never()).markRead(any(), any(), any());
+    }
+
+    @Test
+    void aSuspendedAccountWithAStillValidTokenCannotMarkAnythingAsRead() {
+        doThrow(new UnauthorizedException("Your session has expired. Please sign in again.")).when(userService).requireActive(buyer);
+
+        assertThatThrownBy(() -> service.markRead(buyer, conversationId)).isInstanceOf(UnauthorizedException.class);
+        verifyNoInteractions(conversationService, messages);
+    }
+
+    @Test
+    void theCountsForTheBadgeAreTheTotalsOverAllConversations() {
+        when(messages.unreadTotals(buyer)).thenReturn(totals(7, 3));
+
+        var counts = service.unreadCounts(buyer);
+
+        assertThat(counts.unreadMessages()).isEqualTo(7);
+        assertThat(counts.unreadConversations()).isEqualTo(3);
     }
 }

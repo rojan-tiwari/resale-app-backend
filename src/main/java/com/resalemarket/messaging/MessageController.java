@@ -49,14 +49,16 @@ public class MessageController {
                     + "Reading does not mark anything as read.")
     @ApiResponse(responseCode = "400", description = "Both `before` and `after` were given (VALIDATION_FAILED)")
     @ApiResponse(responseCode = "404", description = "No such conversation, the caller is not one of its two people, or the cursor is not one of its messages (NOT_FOUND)")
+    @ApiResponse(responseCode = "429", description = "Too many calls of the kind an open chat repeats (TOO_MANY_REQUESTS)")
     public ResponseEntity<MessageListResponse> list(
             @PathVariable UUID conversationId,
             @Parameter(description = "Older than this message") @RequestParam(required = false) UUID before,
             @Parameter(description = "Newer than this message") @RequestParam(required = false) UUID after,
             @Parameter(description = "How many, 1 to 100") @RequestParam(defaultValue = "30") int size,
             Authentication authentication) {
-        return ResponseEntity.ok().cacheControl(NO_STORE)
-                .body(messageService.list(userId(authentication), conversationId, before, after, size));
+        UUID userId = userId(authentication);
+        rateLimits.poll(userId);
+        return ResponseEntity.ok().cacheControl(NO_STORE).body(messageService.list(userId, conversationId, before, after, size));
     }
 
     @PostMapping
