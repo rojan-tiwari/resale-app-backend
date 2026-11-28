@@ -12,14 +12,18 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.resalemarket.common.exception.BusinessRuleException;
 import com.resalemarket.common.exception.ConflictException;
+import com.resalemarket.common.exception.ForbiddenException;
 import com.resalemarket.common.exception.GlobalExceptionHandler;
 import com.resalemarket.common.exception.ResourceNotFoundException;
+import com.resalemarket.common.exception.UnauthorizedException;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.security.authentication.InternalAuthenticationServiceException;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.http.MediaType;
 import org.springframework.http.converter.json.JacksonJsonHttpMessageConverter;
 import org.springframework.test.web.servlet.MockMvc;
@@ -74,6 +78,40 @@ class GlobalExceptionHandlerTest {
         mockMvc.perform(get("/test/rule"))
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.code").value("BUSINESS_RULE_VIOLATION"));
+    }
+
+    @Test
+    void unauthorizedBecomesA401ProblemThatSaysHowToAuthenticate() throws Exception {
+        mockMvc.perform(get("/test/unauthorized"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().string("WWW-Authenticate", "Bearer"))
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"))
+                .andExpect(jsonPath("$.detail").value("Invalid email or password."));
+    }
+
+    @Test
+    void forbiddenBecomesA403Problem() throws Exception {
+        mockMvc.perform(get("/test/forbidden"))
+                .andExpect(status().isForbidden())
+                .andExpect(header().doesNotExist("WWW-Authenticate"))
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"))
+                .andExpect(jsonPath("$.detail").value("This account has been suspended."));
+    }
+
+    @Test
+    void aFailedAuthenticationBecomesA401() throws Exception {
+        mockMvc.perform(get("/test/bad-credentials"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+    }
+
+    @Test
+    void anOutageInsideAuthenticationIsAServerErrorNotAWrongCredential() throws Exception {
+        mockMvc.perform(get("/test/auth-outage"))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.code").value("INTERNAL_ERROR"))
+                .andExpect(content().string(not(containsString("connection refused"))));
     }
 
     @Test
@@ -134,6 +172,26 @@ class GlobalExceptionHandlerTest {
         @GetMapping("/conflict")
         void conflict() {
             throw new ConflictException("Email is already registered.");
+        }
+
+        @GetMapping("/unauthorized")
+        void unauthorized() {
+            throw new UnauthorizedException("Invalid email or password.");
+        }
+
+        @GetMapping("/bad-credentials")
+        void badCredentials() {
+            throw new BadCredentialsException("bad");
+        }
+
+        @GetMapping("/auth-outage")
+        void authOutage() {
+            throw new InternalAuthenticationServiceException("connection refused");
+        }
+
+        @GetMapping("/forbidden")
+        void forbidden() {
+            throw new ForbiddenException("This account has been suspended.");
         }
 
         @GetMapping("/rule")

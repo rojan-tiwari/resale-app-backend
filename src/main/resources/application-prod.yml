@@ -1,5 +1,5 @@
 # Production profile: SPRING_PROFILES_ACTIVE=prod
-# Required environment variables: DB_URL, DB_USERNAME, DB_PASSWORD, CORS_ALLOWED_ORIGINS
+# Required environment variables: DB_URL, DB_USERNAME, DB_PASSWORD, JWT_SECRET, CORS_ALLOWED_ORIGINS
 # (use an empty CORS_ALLOWED_ORIGINS when a reverse proxy serves the SPA and the API from one origin).
 spring:
   datasource:
