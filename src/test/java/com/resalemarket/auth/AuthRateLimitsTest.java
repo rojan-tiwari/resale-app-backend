@@ -8,6 +8,7 @@ import com.resalemarket.common.ratelimit.RateLimit;
 import com.resalemarket.support.MutableClock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 class AuthRateLimitsTest {
@@ -30,7 +31,8 @@ class AuthRateLimitsTest {
                         new RateLimit(2, WINDOW),    // register
                         new RateLimit(3, WINDOW),    // forgot password, per IP
                         new RateLimit(1, WINDOW),    // forgot password, per e-mail
-                        new RateLimit(2, WINDOW)));  // reset password
+                        new RateLimit(2, WINDOW),    // reset password
+                        new RateLimit(2, WINDOW)));  // change password
     }
 
     private static ClientInfo from(String ip) {
@@ -98,6 +100,16 @@ class AuthRateLimitsTest {
 
         assertThatThrownBy(() -> limits.forgotPassword(from("203.0.113.1"), "d@example.com"))
                 .isInstanceOf(TooManyRequestsException.class);
+    }
+
+    @Test
+    void changingThePasswordIsLimitedPerSignedInUser() {
+        UUID sita = UUID.randomUUID();
+        limits.changePassword(sita);
+        limits.changePassword(sita);
+
+        assertThatThrownBy(() -> limits.changePassword(sita)).isInstanceOf(TooManyRequestsException.class);
+        assertThatCode(() -> limits.changePassword(UUID.randomUUID())).doesNotThrowAnyException();
     }
 
     @Test

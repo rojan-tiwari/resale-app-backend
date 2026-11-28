@@ -46,12 +46,27 @@ class SecurityBaselineIntegrationTest {
 
     @Test
     void everythingNotExplicitlyPublicRequiresAuthentication() throws Exception {
-        mockMvc.perform(get("/api/v1/listings"))
+        // "mine" sits next to the public listing paths and must never be mistaken for one of them
+        mockMvc.perform(get("/api/v1/listings/mine"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE, "Bearer"))
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.status").value(401))
                 .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+    }
+
+    @Test
+    void discoveryIsPublicForReadingOnlyAndFavouritesAreNot() throws Exception {
+        for (String path : new String[] {"/api/v1/listings", "/api/v1/listings/featured", "/api/v1/listings/recent", "/api/v1/listings/recommended"}) {
+            mockMvc.perform(get(path)).andExpect(status().isOk());
+        }
+        mockMvc.perform(post("/api/v1/listings")).andExpect(status().isUnauthorized());
+        for (String path : new String[] {"/api/v1/favorites", "/api/v1/favorites/ids"}) {
+            mockMvc.perform(get(path))
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+        }
+        mockMvc.perform(post("/api/v1/favorites/0b8f0a54-6a52-4d3c-9f43-0a3d4a8d6c11")).andExpect(status().isUnauthorized());
     }
 
     @Test

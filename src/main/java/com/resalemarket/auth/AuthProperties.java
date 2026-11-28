@@ -71,13 +71,15 @@ public record AuthProperties(
      * @param forgotPasswordByIp   asking for reset e-mails, per IP address
      * @param forgotPasswordByEmail reset e-mails to one address, so it cannot be mail-bombed from many IP addresses
      * @param resetPassword        using reset links, per IP address
+     * @param changePassword       trying current passwords on the change-password endpoint, per signed-in user
      */
     public record RateLimits(
             RateLimit login,
             RateLimit register,
             RateLimit forgotPasswordByIp,
             RateLimit forgotPasswordByEmail,
-            RateLimit resetPassword) {
+            RateLimit resetPassword,
+            RateLimit changePassword) {
 
         public RateLimits {
             login = login != null ? login : new RateLimit(20, Duration.ofMinutes(10));
@@ -85,6 +87,7 @@ public record AuthProperties(
             forgotPasswordByIp = forgotPasswordByIp != null ? forgotPasswordByIp : new RateLimit(10, Duration.ofHours(1));
             forgotPasswordByEmail = forgotPasswordByEmail != null ? forgotPasswordByEmail : new RateLimit(3, Duration.ofHours(1));
             resetPassword = resetPassword != null ? resetPassword : new RateLimit(10, Duration.ofHours(1));
+            changePassword = changePassword != null ? changePassword : new RateLimit(5, Duration.ofMinutes(15));
         }
     }
 }

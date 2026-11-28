@@ -17,6 +17,11 @@ public interface UserMapper {
     @Mapping(target = "email", source = "user.email")
     @Mapping(target = "displayName", source = "profile.displayName")
     @Mapping(target = "phone", source = "profile.phone")
+    @Mapping(target = "showPhone", source = "profile.showPhone")
+    @Mapping(target = "bio", source = "profile.bio")
+    @Mapping(target = "provinceId", source = "profile.provinceId")
+    @Mapping(target = "districtId", source = "profile.districtId")
+    @Mapping(target = "municipalityId", source = "profile.municipalityId")
     @Mapping(target = "createdAt", source = "user.createdAt")
     @Mapping(target = "roles", source = "user.roles")
     UserResponse toResponse(User user, UserProfile profile);

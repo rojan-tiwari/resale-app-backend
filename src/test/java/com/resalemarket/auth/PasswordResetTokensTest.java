@@ -45,7 +45,7 @@ class PasswordResetTokensTest {
                 Duration.ofMinutes(45),
                 5,
                 Duration.ofMinutes(15),
-                new AuthProperties.RateLimits(null, null, null, null, null));
+                new AuthProperties.RateLimits(null, null, null, null, null, null));
         tokens = new PasswordResetTokens(repository, properties, clock);
     }
 

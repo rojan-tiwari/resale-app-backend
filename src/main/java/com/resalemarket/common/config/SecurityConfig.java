@@ -46,10 +46,29 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 @EnableMethodSecurity
 public class SecurityConfig {
 
-    /** Public read-only API endpoints. Later phases append (e.g. listings, categories, public seller profiles). */
+    /** Public read-only API endpoints: reference data, the category tree, search and the home page lists. */
     private static final String[] PUBLIC_GET_ENDPOINTS = {
         "/api/v1/system/ping",
         "/api/v1/locations/**",
+        "/api/v1/categories",
+        "/api/v1/categories/*",
+        // Discovery: search and the home page lists. These literal paths cannot be confused with a listing id (a UUID).
+        "/api/v1/listings",
+        "/api/v1/listings/featured",
+        "/api/v1/listings/recent",
+        "/api/v1/listings/recommended",
+    };
+
+    /**
+     * Reading a listing is public (what the caller may <em>see</em> is decided in {@code ListingAccess}: a draft is a 404 for
+     * everyone but its seller). Every id is restricted to the shape of a UUID, so {@code /listings/mine} (the caller's own list)
+     * can never match by accident and stays behind the sign-in. Changing anything is not listed here, hence denied by default.
+     */
+    private static final String[] PUBLIC_LISTING_READS = {
+        "/api/v1/listings/{id:[0-9a-fA-F-]{36}}",
+        "/api/v1/listings/{id:[0-9a-fA-F-]{36}}/similar",
+        "/api/v1/listings/{id:[0-9a-fA-F-]{36}}/images/{imageId:[0-9a-fA-F-]{36}}",
+        "/api/v1/users/{id:[0-9a-fA-F-]{36}}/listings",
     };
 
     /**
@@ -65,6 +84,12 @@ public class SecurityConfig {
         "/api/v1/auth/forgot-password",
         "/api/v1/auth/reset-password",
     };
+
+    /**
+     * A member's public profile is addressed by id (a UUID). The pattern is restricted to the shape of a UUID so that
+     * {@code /users/me} (the caller's own, private profile) can never match it by accident.
+     */
+    private static final String PUBLIC_PROFILE = "/api/v1/users/{id:[0-9a-fA-F-]{36}}";
 
     /** Interactive API documentation; only reachable when springdoc is enabled (development). */
     private static final String[] API_DOCS = {
@@ -96,6 +121,8 @@ public class SecurityConfig {
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers(HttpMethod.GET, PUBLIC_GET_ENDPOINTS).permitAll()
+                        .requestMatchers(HttpMethod.GET, PUBLIC_PROFILE).permitAll()
+                        .requestMatchers(HttpMethod.GET, PUBLIC_LISTING_READS).permitAll()
                         .requestMatchers(HttpMethod.POST, PUBLIC_POST_ENDPOINTS).permitAll()
                         .requestMatchers(HttpMethod.GET, API_DOCS).permitAll()
                         .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**", "/actuator/info")

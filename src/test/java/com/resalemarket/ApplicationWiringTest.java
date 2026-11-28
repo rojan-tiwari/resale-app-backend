@@ -6,6 +6,10 @@ import com.resalemarket.auth.AuthProperties;
 import com.resalemarket.common.config.FrontendProperties;
 import com.resalemarket.common.mail.EmailProperties;
 import com.resalemarket.common.mail.EmailSender;
+import com.resalemarket.common.storage.StorageProperties;
+import com.resalemarket.common.storage.StorageService;
+import com.resalemarket.favorite.FavoriteProperties;
+import com.resalemarket.listing.ListingProperties;
 import java.time.Duration;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -48,9 +52,22 @@ class ApplicationWiringTest {
     @Autowired
     private EmailSender emailSender;
 
+    @Autowired
+    private ListingProperties listingProperties;
+
+    @Autowired
+    private StorageProperties storageProperties;
+
+    @Autowired
+    private FavoriteProperties favoriteProperties;
+
+    @Autowired
+    private StorageService storageService;
+
     @Test
     void theApplicationStartsAndAllItsBeansWire() {
         assertThat(context.getBeanNamesForType(com.resalemarket.auth.PasswordController.class)).hasSize(1);
+        assertThat(context.getBeanNamesForType(com.resalemarket.user.UserController.class)).hasSize(1);
     }
 
     @Test
@@ -66,5 +83,30 @@ class ApplicationWiringTest {
     void developmentAndTestsLogMailInsteadOfSendingIt() {
         assertThat(emailProperties.transport()).isEqualTo("log");
         assertThat(emailSender.getClass().getSimpleName()).isEqualTo("LoggingEmailSender");
+    }
+
+    @Test
+    void theListingSettingsBindFromTheRealYaml() {
+        assertThat(listingProperties.requireReview()).isFalse();                      // new listings go live at once by default
+        assertThat(listingProperties.maxImageSize().toMegabytes()).isEqualTo(5);
+        assertThat(listingProperties.rateLimits().create().attempts()).isEqualTo(100_000);   // application-test.yml
+        assertThat(new ListingProperties.RateLimits(null, null).create().attempts()).isEqualTo(30);   // the built-in defaults
+        assertThat(new ListingProperties.RateLimits(null, null).imageUpload().attempts()).isEqualTo(120);
+    }
+
+    @Test
+    void photosAreStoredOnLocalDiskUnderTheConfiguredRoot() {
+        assertThat(storageProperties.type()).isEqualTo("local");
+        assertThat(storageProperties.root().toString()).isEqualTo("target/test-uploads");   // application-test.yml
+        assertThat(storageService.getClass().getSimpleName()).isEqualTo("LocalDiskStorageService");
+    }
+
+    @Test
+    void theFavouriteSettingsBindFromTheRealYaml() {
+        assertThat(favoriteProperties.maxPerUser()).isEqualTo(500);
+        assertThat(favoriteProperties.rateLimits().write().attempts()).isEqualTo(100_000);   // application-test.yml
+        assertThat(context.getBeanNamesForType(com.resalemarket.discovery.RecommendationController.class)).hasSize(1);
+        assertThat(context.getBeanNamesForType(com.resalemarket.favorite.FavoriteController.class)).hasSize(1);
+        assertThat(context.getBeanNamesForType(com.resalemarket.listing.ListingSearchController.class)).hasSize(1);
     }
 }

@@ -19,6 +19,19 @@ app:
       forgot-password-by-ip: { attempts: 100000, window: 1m }
       forgot-password-by-email: { attempts: 100000, window: 1m }
       reset-password: { attempts: 100000, window: 1m }
+      change-password: { attempts: 100000, window: 1m }
+
+  storage:
+    root: target/test-uploads    # thrown away by `mvn clean`
+  search:
+    popular-cache-ttl: 0s        # no caching in tests: each test sees the rows it has just inserted
+  favorite:
+    rate-limits:
+      write: { attempts: 100000, window: 1m }
+  listing:
+    rate-limits:
+      create: { attempts: 100000, window: 1m }
+      image-upload: { attempts: 100000, window: 1m }
 
 logging:
   level:

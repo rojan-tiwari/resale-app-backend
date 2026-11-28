@@ -66,6 +66,17 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    void anUploadOverTheServerLimitIsA413WithItsOwnCodeAndAHelpfulMessage() throws Exception {
+        mockMvc.perform(get("/test/too-large"))
+                .andExpect(status().isContentTooLarge())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(413))
+                .andExpect(jsonPath("$.code").value("PAYLOAD_TOO_LARGE"))
+                .andExpect(jsonPath("$.detail").value("The upload is too large. Choose smaller photos, or fewer at a time."))
+                .andExpect(jsonPath("$.timestamp").exists());
+    }
+
+    @Test
     void conflictBecomesA409Problem() throws Exception {
         mockMvc.perform(get("/test/conflict"))
                 .andExpect(status().isConflict())
@@ -167,6 +178,11 @@ class GlobalExceptionHandlerTest {
         @GetMapping("/not-found")
         void notFound() {
             throw new ResourceNotFoundException("Widget", 42);
+        }
+
+        @GetMapping("/too-large")
+        void tooLarge() {
+            throw new org.springframework.web.multipart.MaxUploadSizeExceededException(5 * 1024 * 1024);
         }
 
         @GetMapping("/conflict")

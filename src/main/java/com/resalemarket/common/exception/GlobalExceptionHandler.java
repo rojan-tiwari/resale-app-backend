@@ -26,6 +26,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
 /**
@@ -51,6 +52,9 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         if (ex instanceof TooManyRequestsException tooMany) {
             response.header(HttpHeaders.RETRY_AFTER, Long.toString(tooMany.retryAfterSeconds()));
         }
+        if (ex instanceof FieldValidationException invalid) {
+            problem.setProperty("errors", invalid.getViolations());   // same shape as a Bean Validation failure
+        }
         return response.body(problem);
     }
 
@@ -62,6 +66,21 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 HttpStatus.BAD_REQUEST, ErrorCode.VALIDATION_FAILED, "One or more fields are invalid.");
         problem.setProperty("errors", violations(ex.getBindingResult()));
         return handleExceptionInternal(ex, problem, headers, HttpStatus.BAD_REQUEST, request);
+    }
+
+    /**
+     * A file (or the whole upload) is over the web server's limit ({@code spring.servlet.multipart.*}). Answered before any of our
+     * code runs, so the framework's terse "Maximum upload size exceeded" is replaced by a sentence a person can act on, under a
+     * code of its own that the uploader can recognise.
+     */
+    @Override
+    protected ResponseEntity<Object> handleMaxUploadSizeExceededException(
+            MaxUploadSizeExceededException ex, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+        ProblemDetail problem = ProblemDetails.of(
+                HttpStatus.CONTENT_TOO_LARGE,
+                ErrorCode.PAYLOAD_TOO_LARGE,
+                "The upload is too large. Choose smaller photos, or fewer at a time.");
+        return handleExceptionInternal(ex, problem, headers, HttpStatus.CONTENT_TOO_LARGE, request);
     }
 
     /** Failures of constraints declared directly on parameters (e.g. {@code @Positive @PathVariable}). */

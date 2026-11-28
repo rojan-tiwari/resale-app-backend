@@ -44,6 +44,23 @@ public class UserProfile {
     @Column(name = "show_phone", nullable = false)
     private boolean showPhone;
 
+    /** A few words about the person, shown on their public profile. */
+    @Column(length = 500)
+    private String bio;
+
+    /**
+     * Where the person is, as ids of the {@code location} module's reference data (this module does not own those tables,
+     * so it holds plain ids). The database keeps the three consistent with composite foreign keys.
+     */
+    @Column(name = "province_id")
+    private Integer provinceId;
+
+    @Column(name = "district_id")
+    private Integer districtId;
+
+    @Column(name = "municipality_id")
+    private Integer municipalityId;
+
     @Generated(event = EventType.INSERT)
     @Column(name = "created_at", nullable = false, insertable = false, updatable = false)
     private Instant createdAt;
@@ -61,5 +78,27 @@ public class UserProfile {
         profile.displayName = displayName.strip();
         profile.phone = phone;
         return profile;
+    }
+
+    /**
+     * Replaces everything the owner can edit (the profile form is saved as a whole). {@code phone} is already in E.164 form;
+     * optional values arrive as {@code null} when the person cleared them. The caller has checked that the location ids
+     * belong together and that {@code showPhone} is only set when there is a phone number.
+     */
+    public void update(
+            String displayName,
+            String phone,
+            boolean showPhone,
+            String bio,
+            Integer provinceId,
+            Integer districtId,
+            Integer municipalityId) {
+        this.displayName = displayName.strip();
+        this.phone = phone;
+        this.showPhone = showPhone;
+        this.bio = bio;
+        this.provinceId = provinceId;
+        this.districtId = districtId;
+        this.municipalityId = municipalityId;
     }
 }

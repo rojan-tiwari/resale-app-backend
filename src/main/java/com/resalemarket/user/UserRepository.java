@@ -1,12 +1,16 @@
 package com.resalemarket.user;
 
 import com.resalemarket.user.entity.User;
+import com.resalemarket.user.entity.UserStatus;
 import jakarta.persistence.LockModeType;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import java.util.Collection;
+import java.util.List;
 
 public interface UserRepository extends JpaRepository<User, UUID> {
 
@@ -30,4 +34,11 @@ public interface UserRepository extends JpaRepository<User, UUID> {
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<User> findWithLockById(UUID id);
+
+    /**
+     * Ids of the accounts with one of these statuses. An {@code IN} list (not {@code <> 'ACTIVE'}) so that
+     * {@code idx_users_status_created} is used: almost every account is active, and a "not equal" would scan them all.
+     */
+    @Query("select u.id from User u where u.status in :statuses")
+    List<UUID> findIdsByStatusIn(Collection<UserStatus> statuses);
 }

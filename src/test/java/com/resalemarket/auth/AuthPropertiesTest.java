@@ -30,6 +30,7 @@ class AuthPropertiesTest {
         assertThat(limits.forgotPasswordByIp()).isEqualTo(new RateLimit(10, Duration.ofHours(1)));
         assertThat(limits.forgotPasswordByEmail()).isEqualTo(new RateLimit(3, Duration.ofHours(1)));
         assertThat(limits.resetPassword()).isEqualTo(new RateLimit(10, Duration.ofHours(1)));
+        assertThat(limits.changePassword()).isEqualTo(new RateLimit(5, Duration.ofMinutes(15)));
     }
 
     @Test

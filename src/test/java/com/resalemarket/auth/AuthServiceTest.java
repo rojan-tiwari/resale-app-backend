@@ -8,8 +8,11 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.resalemarket.auth.dto.ChangePasswordRequest;
 import com.resalemarket.auth.dto.LoginRequest;
 import com.resalemarket.auth.dto.RegisterRequest;
+import com.resalemarket.auth.entity.RevocationReason;
+import com.resalemarket.common.exception.FieldValidationException;
 import com.resalemarket.common.exception.ForbiddenException;
 import com.resalemarket.common.exception.UnauthorizedException;
 import com.resalemarket.user.UserService;
@@ -59,7 +62,7 @@ class AuthServiceTest {
     private AuthService service;
 
     private final UserResponse user = new UserResponse(
-            USER_ID, "sita@example.com", "Sita", null, Instant.now(), List.of("ROLE_USER"));
+            USER_ID, "sita@example.com", "Sita", null, false, null, null, null, null, Instant.now(), List.of("ROLE_USER"));
 
     @BeforeEach
     void setUp() {
@@ -70,7 +73,7 @@ class AuthServiceTest {
                 Duration.ofHours(1),
                 3,
                 Duration.ofMinutes(20),
-                new AuthProperties.RateLimits(null, null, null, null, null));
+                new AuthProperties.RateLimits(null, null, null, null, null, null));
         service = new AuthService(userService, passwordEncoder, authenticationManager, accessTokens, refreshTokens, properties);
     }
 
@@ -306,5 +309,75 @@ class AuthServiceTest {
         service.logout(" ");
 
         verifyNoInteractions(refreshTokens);
+    }
+
+    // --- change password --------------------------------------------------------------------------------------------
+
+    @Test
+    void changingThePasswordChecksTheCurrentOneStoresTheNewHashAndEndsEverySession() {
+        when(userService.getActiveAccount(USER_ID)).thenReturn(user);
+        when(authenticationManager.authenticate(any())).thenReturn(authenticated());
+        when(passwordEncoder.encode("a brand new password")).thenReturn("{bcrypt}new-hash");
+
+        service.changePassword(USER_ID, new ChangePasswordRequest("correct horse", "a brand new password"));
+
+        ArgumentCaptor<Authentication> attempt = ArgumentCaptor.forClass(Authentication.class);
+        verify(authenticationManager).authenticate(attempt.capture());
+        assertThat(attempt.getValue().getPrincipal()).isEqualTo("sita@example.com");
+        assertThat(attempt.getValue().getCredentials()).isEqualTo("correct horse");
+        verify(userService).replacePassword(USER_ID, "{bcrypt}new-hash");
+        verify(refreshTokens).revokeAll(USER_ID, RevocationReason.PASSWORD_CHANGED);
+    }
+
+    @Test
+    void aWrongCurrentPasswordIsAFieldErrorNotA401AndChangesNothing() {
+        when(userService.getActiveAccount(USER_ID)).thenReturn(user);
+        when(authenticationManager.authenticate(any())).thenThrow(new BadCredentialsException("bad"));
+
+        assertThatThrownBy(() -> service.changePassword(USER_ID, new ChangePasswordRequest("wrong", "a brand new password")))
+                .isInstanceOfSatisfying(FieldValidationException.class, ex -> {
+                    assertThat(ex.getStatus().value()).isEqualTo(400);
+                    assertThat(ex.getViolations()).singleElement().satisfies(violation -> {
+                        assertThat(violation.field()).isEqualTo("currentPassword");
+                        assertThat(violation.message()).isEqualTo("This is not your current password.");
+                    });
+                });
+
+        verify(userService, never()).replacePassword(any(), any());
+        verifyNoInteractions(refreshTokens);
+    }
+
+    @Test
+    void theNewPasswordMustDifferFromTheCurrentOne() {
+        when(userService.getActiveAccount(USER_ID)).thenReturn(user);
+        when(authenticationManager.authenticate(any())).thenReturn(authenticated());
+
+        assertThatThrownBy(() -> service.changePassword(USER_ID, new ChangePasswordRequest("same password", "same password")))
+                .isInstanceOfSatisfying(FieldValidationException.class,
+                        ex -> assertThat(ex.getViolations().get(0).field()).isEqualTo("newPassword"));
+
+        verify(userService, never()).replacePassword(any(), any());
+        verifyNoInteractions(refreshTokens);
+    }
+
+    @Test
+    void aLockedAccountCannotChangeItsPasswordAndGets403NotAnUnauthorizedLoop() {
+        when(userService.getActiveAccount(USER_ID)).thenReturn(user);
+        when(authenticationManager.authenticate(any())).thenThrow(new LockedException("locked"));
+
+        assertThatThrownBy(() -> service.changePassword(USER_ID, new ChangePasswordRequest("correct horse", "a brand new password")))
+                .isInstanceOf(ForbiddenException.class);
+
+        verify(userService, never()).replacePassword(any(), any());
+    }
+
+    @Test
+    void anAccountThatIsNoLongerActiveEndsTheSession() {
+        when(userService.getActiveAccount(USER_ID)).thenThrow(new UnauthorizedException("Your session has expired."));
+
+        assertThatThrownBy(() -> service.changePassword(USER_ID, new ChangePasswordRequest("correct horse", "a brand new password")))
+                .isInstanceOf(UnauthorizedException.class);
+
+        verifyNoInteractions(authenticationManager, passwordEncoder, refreshTokens);
     }
 }

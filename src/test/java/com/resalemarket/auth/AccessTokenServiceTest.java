@@ -25,7 +25,8 @@ class AccessTokenServiceTest {
             config.jwtEncoder(properties), properties, Clock.fixed(now, ZoneOffset.UTC));
 
     private final UserResponse user = new UserResponse(
-            UUID.randomUUID(), "sita@example.com", "Sita", null, now, List.of("ROLE_ADMIN", "ROLE_USER"));
+            UUID.randomUUID(), "sita@example.com", "Sita", null, false, null, null, null, null, now,
+            List.of("ROLE_ADMIN", "ROLE_USER"));
 
     @Test
     void theTokenIdentifiesTheUserAndCarriesTheirRoles() {
