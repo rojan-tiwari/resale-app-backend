@@ -9,6 +9,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.resalemarket.common.exception.ConflictException;
+import com.resalemarket.common.exception.UnauthorizedException;
 import com.resalemarket.support.MutableClock;
 import com.resalemarket.user.dto.NewUser;
 import com.resalemarket.user.dto.UserResponse;
@@ -228,5 +229,33 @@ class UserServiceTest {
 
         assertThat(user.getFailedLoginAttempts()).isZero();
         assertThat(user.getLastLoginAt()).isEqualTo(clock.instant());
+    }
+
+    // --- replacing the password -----------------------------------------------------------------------------------
+
+    @Test
+    void replacingThePasswordStoresTheNewHashAndLiftsALock() {
+        UUID id = UUID.randomUUID();
+        User user = account(id, UserStatus.ACTIVE);
+        user.registerFailedLogin(clock.instant(), 1, Duration.ofMinutes(15));   // locked
+        when(userRepository.findWithLockById(id)).thenReturn(Optional.of(user));
+
+        service.replacePassword(id, "{bcrypt}new-hash");
+
+        assertThat(user.getPasswordHash()).isEqualTo("{bcrypt}new-hash");
+        assertThat(user.isLockedAt(clock.instant())).isFalse();
+        assertThat(user.getFailedLoginAttempts()).isZero();
+    }
+
+    @Test
+    void thePasswordOfAnInactiveAccountIsNotReplaced() {
+        UUID id = UUID.randomUUID();
+        User user = account(id, UserStatus.SUSPENDED);
+        when(userRepository.findWithLockById(id)).thenReturn(Optional.of(user));
+
+        assertThatThrownBy(() -> service.replacePassword(id, "{bcrypt}new-hash"))
+                .isInstanceOf(UnauthorizedException.class);
+
+        assertThat(user.getPasswordHash()).isEqualTo(UserFixtures.HASH);
     }
 }

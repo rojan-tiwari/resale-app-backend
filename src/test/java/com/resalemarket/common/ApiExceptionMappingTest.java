@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.resalemarket.common.exception.GlobalExceptionHandler;
+import com.resalemarket.common.exception.InvalidTokenException;
 import com.resalemarket.common.exception.TooManyRequestsException;
 import java.time.Duration;
 import org.junit.jupiter.api.BeforeEach;
@@ -43,6 +44,15 @@ class ApiExceptionMappingTest {
                 .andExpect(jsonPath("$.detail").value("Too many attempts. Please try again in 5 minutes."));
     }
 
+    @Test
+    void anInvalidTokenIsA400WithItsOwnCode() throws Exception {
+        mockMvc.perform(get("/test/token"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_TOKEN"))
+                .andExpect(jsonPath("$.detail").value("This link is no good."))
+                .andExpect(jsonPath("$.errors").doesNotExist());
+    }
+
     @RestController
     @RequestMapping("/test")
     static class Thrower {
@@ -50,6 +60,11 @@ class ApiExceptionMappingTest {
         @GetMapping("/too-many")
         void tooMany() {
             throw new TooManyRequestsException(Duration.ofMinutes(5));
+        }
+
+        @GetMapping("/token")
+        void token() {
+            throw new InvalidTokenException("This link is no good.");
         }
     }
 }

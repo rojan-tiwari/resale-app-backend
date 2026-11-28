@@ -21,6 +21,7 @@ import com.resalemarket.common.config.CorsProperties;
 import com.resalemarket.common.config.JwtConfig;
 import com.resalemarket.common.config.JwtProperties;
 import com.resalemarket.common.config.SecurityConfig;
+import com.resalemarket.common.exception.InvalidTokenException;
 import com.resalemarket.common.exception.TooManyRequestsException;
 import com.resalemarket.common.security.RestSecurityErrorHandlers;
 import java.time.Duration;
@@ -42,7 +43,7 @@ import org.springframework.test.web.servlet.ResultActions;
  * handler, with the services mocked. No database is needed, so these run everywhere, including machines without Docker; the
  * end-to-end versions with PostgreSQL are the {@code *IntegrationTest} classes.
  */
-@WebMvcTest(controllers = {AuthController.class})
+@WebMvcTest(controllers = {PasswordController.class, AuthController.class})
 @Import({SecurityConfig.class, JwtConfig.class, RestSecurityErrorHandlers.class, RefreshCookies.class})
 // A web slice does not process @ConfigurationPropertiesScan, so the settings the imported classes need are listed here.
 @EnableConfigurationProperties({AuthProperties.class, JwtProperties.class, CorsProperties.class})
@@ -57,11 +58,105 @@ class AccountEndpointsWebTest {
     private AuthService authService;
 
     @MockitoBean
+    private PasswordResetService passwordReset;
+
+    @MockitoBean
     private AuthRateLimits rateLimits;
 
     /** Needed by {@link SecurityConfig}'s authentication manager; sign-in itself is not exercised here. */
     @MockitoBean
     private UserDetailsService userDetailsService;
+
+    // --- POST /auth/forgot-password -------------------------------------------------------------------------------
+
+    @Test
+    void forgotPasswordIsPublicAndAlwaysAnswersTheSame() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/forgot-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"  Sita@Example.com \"}"))
+                .andExpect(status().isAccepted())
+                .andExpect(content().string(""))
+                .andExpect(header().string("Cache-Control", containsString("no-store")));
+
+        verify(passwordReset).requestReset("Sita@Example.com");   // trimmed; the service lower-cases
+    }
+
+    @Test
+    void forgotPasswordNeedsAWellFormedAddress() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/forgot-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"nonsense\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.errors[0].field").value("email"));
+
+        verifyNoInteractions(passwordReset);
+    }
+
+    @Test
+    void forgotPasswordIsRateLimitedBeforeAnyWorkIsDone() throws Exception {
+        doThrow(new TooManyRequestsException(Duration.ofMinutes(42))).when(rateLimits).forgotPassword(any(), eq("sita@example.com"));
+
+        mockMvc.perform(post("/api/v1/auth/forgot-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"sita@example.com\"}"))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().string("Retry-After", "2520"))
+                .andExpect(jsonPath("$.code").value("TOO_MANY_REQUESTS"))
+                .andExpect(jsonPath("$.detail").value("Too many attempts. Please try again in 42 minutes."));
+
+        verifyNoInteractions(passwordReset);
+    }
+
+    // --- POST /auth/reset-password --------------------------------------------------------------------------------
+
+    @Test
+    void resetPasswordIsPublicAndAnswers204() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/reset-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"token\":\"abc123\",\"newPassword\":\"a brand new password\"}"))
+                .andExpect(status().isNoContent());
+
+        verify(passwordReset).reset("abc123", "a brand new password");
+    }
+
+    @Test
+    void aBadLinkIsA400WithItsOwnCodeSoTheWebAppCanOfferANewOne() throws Exception {
+        doThrow(new InvalidTokenException("This password reset link is invalid or has expired. Please request a new one."))
+                .when(passwordReset).reset(any(), any());
+
+        mockMvc.perform(post("/api/v1/auth/reset-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"token\":\"abc123\",\"newPassword\":\"a brand new password\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_TOKEN"))
+                .andExpect(jsonPath("$.errors").doesNotExist());
+    }
+
+    @Test
+    void aWeakNewPasswordIsAValidationErrorAndTheTokenIsNotSpent() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/reset-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"token\":\"abc123\",\"newPassword\":\"short\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.errors[0].field").value("newPassword"));
+
+        verify(passwordReset, never()).reset(any(), any());
+    }
+
+    @Test
+    void resetPasswordIsRateLimited() throws Exception {
+        doThrow(new TooManyRequestsException(Duration.ofSeconds(30))).when(rateLimits).resetPassword(any());
+
+        mockMvc.perform(post("/api/v1/auth/reset-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"token\":\"abc123\",\"newPassword\":\"a brand new password\"}"))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().string("Retry-After", "30"));
+
+        verifyNoInteractions(passwordReset);
+    }
 
     // --- rate limits on the older endpoints -----------------------------------------------------------------------
 

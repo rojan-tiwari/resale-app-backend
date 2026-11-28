@@ -126,4 +126,14 @@ public class User {
         lockedUntil = null;
         lastLoginAt = now;
     }
+
+    /**
+     * Replaces the password hash. Whoever can do this has proved they own the account (they knew the old password or
+     * held a reset link), so an existing lock-out and the wrong-password counter are cleared too.
+     */
+    public void replacePasswordHash(String newPasswordHash) {
+        passwordHash = newPasswordHash;
+        failedLoginAttempts = 0;
+        lockedUntil = null;
+    }
 }

@@ -138,7 +138,8 @@ public class AuthController {
         return response.body(session.response());
     }
 
-    private static ClientInfo clientOf(HttpServletRequest request) {
+    /** Shared with {@link PasswordController}: who is calling, as far as the server can tell. */
+    static ClientInfo clientOf(HttpServletRequest request) {
         return new ClientInfo(request.getRemoteAddr(), request.getHeader(HttpHeaders.USER_AGENT));
     }
 }

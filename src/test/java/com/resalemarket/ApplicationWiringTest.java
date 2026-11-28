@@ -3,6 +3,9 @@ package com.resalemarket;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.resalemarket.auth.AuthProperties;
+import com.resalemarket.common.config.FrontendProperties;
+import com.resalemarket.common.mail.EmailProperties;
+import com.resalemarket.common.mail.EmailSender;
 import java.time.Duration;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -36,16 +39,32 @@ class ApplicationWiringTest {
     @Autowired
     private AuthProperties authProperties;
 
+    @Autowired
+    private EmailProperties emailProperties;
+
+    @Autowired
+    private FrontendProperties frontendProperties;
+
+    @Autowired
+    private EmailSender emailSender;
+
     @Test
     void theApplicationStartsAndAllItsBeansWire() {
-        assertThat(context.getBeanNamesForType(com.resalemarket.auth.AuthController.class)).hasSize(1);
+        assertThat(context.getBeanNamesForType(com.resalemarket.auth.PasswordController.class)).hasSize(1);
     }
 
     @Test
     void theRealYamlBindsToTheSettings() {
+        assertThat(authProperties.passwordResetTtl()).isEqualTo(Duration.ofHours(1));
         assertThat(authProperties.maxFailedLogins()).isEqualTo(5);
         assertThat(authProperties.lockoutDuration()).isEqualTo(Duration.ofMinutes(15));
         assertThat(authProperties.rateLimits().login().attempts()).isEqualTo(100_000);   // application-test.yml
+        assertThat(frontendProperties.url()).isEqualTo("http://localhost:4200");
     }
 
+    @Test
+    void developmentAndTestsLogMailInsteadOfSendingIt() {
+        assertThat(emailProperties.transport()).isEqualTo("log");
+        assertThat(emailSender.getClass().getSimpleName()).isEqualTo("LoggingEmailSender");
+    }
 }

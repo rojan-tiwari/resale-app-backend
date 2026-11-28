@@ -1,10 +1,20 @@
 # Production profile: SPRING_PROFILES_ACTIVE=prod
-# Required environment variables: DB_URL, DB_USERNAME, DB_PASSWORD, JWT_SECRET, CORS_ALLOWED_ORIGINS
+# Required environment variables: DB_URL, DB_USERNAME, DB_PASSWORD, JWT_SECRET, CORS_ALLOWED_ORIGINS,
+# FRONTEND_URL, MAIL_HOST, MAIL_USERNAME, MAIL_PASSWORD, MAIL_FROM
 # (use an empty CORS_ALLOWED_ORIGINS when a reverse proxy serves the SPA and the API from one origin).
 spring:
   datasource:
     url: ${DB_URL}               # no localhost fallback in production
     username: ${DB_USERNAME}
+  mail:
+    host: ${MAIL_HOST}           # required: the API refuses to start without a mail server
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME}
+    password: ${MAIL_PASSWORD}
+    properties:
+      "[mail.smtp.auth]": true
+      "[mail.smtp.starttls.enable]": true
+      "[mail.smtp.starttls.required]": true
 
 logging:
   level:
@@ -31,5 +41,10 @@ springdoc:
     enabled: false
 
 app:
+  frontend:
+    url: ${FRONTEND_URL}         # required: password-reset e-mails link to it
+  mail:
+    transport: smtp              # fixed, not overridable: the log transport would write working reset links into the logs
+    from: ${MAIL_FROM}           # required, e.g. ResaleMarket <no-reply@your-domain>
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:}
