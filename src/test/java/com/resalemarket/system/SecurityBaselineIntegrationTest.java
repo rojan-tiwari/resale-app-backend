@@ -70,6 +70,17 @@ class SecurityBaselineIntegrationTest {
     }
 
     @Test
+    void conversationsAreNeverPublic() throws Exception {
+        String conversation = "0b8f0a54-6a52-4d3c-9f43-0a3d4a8d6c11";
+        for (String path : new String[] {"/api/v1/conversations", "/api/v1/conversations/" + conversation}) {
+            mockMvc.perform(get(path))
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+        }
+        mockMvc.perform(post("/api/v1/conversations")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void publicEndpointsAreReadOnly() throws Exception {
         mockMvc.perform(post("/api/v1/locations/provinces"))
                 .andExpect(status().isUnauthorized());

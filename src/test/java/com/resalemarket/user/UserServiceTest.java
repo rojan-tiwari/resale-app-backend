@@ -2,6 +2,7 @@ package com.resalemarket.user;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.entry;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -413,6 +414,28 @@ class UserServiceTest {
         assertThat(service.isActive(deleted)).isFalse();
         assertThat(service.isActive(unknown)).isFalse();
         verifyNoInteractions(profileRepository);          // one row: no profile, no place names
+    }
+
+    @Test
+    void displayNamesAreGivenOnlyForAccountsInGoodStandingAndInOneBatch() {
+        UUID active = UUID.randomUUID();
+        UUID suspended = UUID.randomUUID();
+        UUID unknown = UUID.randomUUID();
+        User sita = account(active, UserStatus.ACTIVE);
+        when(userRepository.findAllById(List.of(active, suspended, unknown)))
+                .thenReturn(List.of(sita, account(suspended, UserStatus.SUSPENDED)));
+        UserProfile profile = UserProfile.create(sita, "Sita Sharma", "+9779812345678");
+        ReflectionTestUtils.setField(profile, "id", active);        // a loaded profile shares its user's id (@MapsId); a new one gets it when saved
+        when(profileRepository.findAllById(List.of(active))).thenReturn(List.of(profile));
+
+        assertThat(service.displayNames(List.of(active, suspended, unknown))).containsOnly(entry(active, "Sita Sharma"));
+    }
+
+    @Test
+    void askingForNoNamesAsksTheDatabaseNothing() {
+        assertThat(service.displayNames(List.of())).isEmpty();
+
+        verifyNoInteractions(userRepository, profileRepository);
     }
 
     @Test
